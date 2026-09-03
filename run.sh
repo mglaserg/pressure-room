@@ -8,5 +8,5 @@ else
   python -m venv .venv
   source .venv/bin/activate
   pip install -r requirements.txt
-  streamlit run app.py
+  streamlit run app.py --server.address 0.0.0.0
 fi
