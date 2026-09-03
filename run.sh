@@ -5,7 +5,7 @@ if command -v uv >/dev/null 2>&1; then
   uv sync
   uv run streamlit run app.py
 else
-  python -m venv .venv
+  python3 -m venv .venv
   source .venv/bin/activate
   pip install -r requirements.txt
   streamlit run app.py --server.address 0.0.0.0
