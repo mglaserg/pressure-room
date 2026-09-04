@@ -1,59 +1,65 @@
-# Pressure Room
+# Pressure Room v0.4
 
-**A causal story-development workspace.**
+**Writers, under pressure.**
 
-Pressure Room is a Streamlit app for developing character-driven stories through **pressure, choice, consequence, and moral change** rather than forcing a screenplay into a generic beat sheet.
+Pressure Room is a local-first screenwriting environment for developing stories through **pressure, choice, consequence, and moral movement**.
 
-Its core loop is:
+V0.4 moves Pressure Room from its Streamlit prototype into a proper web application while preserving the original V0.1 story model.
 
-> **Character wants something → makes a choice → consequence → pressure narrows options → harder choice → bill comes due → moral boundary moves.**
+> **Want → Pressure → Choice → Consequence → Bill → Change**
 
-## V0.1 features
+## What changed from v0.1
 
-- **Story Bible / Moral Spine**
-  - Want
-  - Need
-  - Core belief
-  - Moral boundary
-  - Fear
-  - Temptation
-  - Moral-compromise tracker
-- **Therefore / But Causal Map**
-- **Scene Builder**
-  - Opening behavior/image
-  - Want
-  - Obstacle
-  - Tactic
-  - Pressure
-  - Choice
-  - Starting/ending state
-  - Cut-on beat
-- **Bill Ledger**
-  - External consequence
-  - Internal / moral cost
-  - Outstanding, escalating, paid, abandoned
-- **Pressure Lab**
-  - Remove an option
-  - Add a deadline
-  - Conflicting obligations
-  - Expose prior behavior
-  - Reverse status
-  - Force commitment
-  - Create a witness
-  - Attach collateral
-- **Story MRI**
-  - Pressure
-  - Moral compromise
-  - Character option-space
-- **Writers’ Room**
-  - Optional, rule-based structural questions
-  - The app does **not** depend on AI
+The biggest change is not more theory. It is **less interface**.
 
-## Run it
+The application now has only four top-level areas:
 
-Python 3.11+ recommended.
+- **Write** — screenplay text is the primary surface; scene structure is hidden until opened.
+- **Structure** — Story, Characters, Causality, Bills, Branches.
+- **Diagnose** — Story MRI, Pressure Lab, optional Room Questions.
+- **How to use** — onboarding designed to introduce Pressure Room to friends and collaborators.
 
-### Windows shortcut
+## v0.4 features
+
+### Write
+- actual screenplay text per scene
+- clean paper-like editor
+- mobile scene strip / desktop scene rail
+- local draft preservation
+- debounced autosave
+- progressive-disclosure scene structure
+- Want / Pressure / Choice first; advanced fields stay tucked away
+
+### Structure
+- Story Bible / Moral Spine
+- THEREFORE / BUT causality
+- Bill Ledger
+- story branches
+- branch cloning
+- named snapshots
+
+### Diagnose
+- Story MRI
+- Pressure Lab
+- optional Writers' Room interrogation questions
+- AI is **not** required
+
+### Share
+- complete `.pressureroom` project package
+- import as copy
+- restore / replace
+- PDF story packet
+- Markdown story packet
+- Fountain screenplay export
+
+### Mobile
+- responsive layout
+- bottom navigation
+- swipeable scene rail
+- touch-sized controls
+- PWA manifest foundation
+
+## Run it on Windows
 
 Double-click:
 
@@ -61,75 +67,55 @@ Double-click:
 run.bat
 ```
 
-It uses `uv` when available and falls back to a local virtual environment + pip.
+This opens the API and web frontend in separate terminal windows, then opens `http://localhost:3000`.
 
-### With `uv`
+## Run manually
+
+### 1. Backend
 
 ```bash
-cd pressure-room
+cd backend
 uv sync
-uv run streamlit run app.py
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-### With pip
+### 2. Frontend
+
+In another terminal:
 
 ```bash
-cd pressure-room
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-# source .venv/bin/activate
-
-pip install -r requirements.txt
-streamlit run app.py
+cd frontend
+npm install
+npm run dev
 ```
 
-The app creates `data/pressure_room.db` automatically and seeds a small fictional demo story so the interface is not empty on first launch.
+Open:
 
-## Why the data model already looks a little “bigger” than V1
+```text
+http://localhost:3000
+```
 
-V1 uses SQLite and is intended for a single writer, but important records already have:
+## Existing v0.1 data
 
-- stable UUIDs
-- timestamps
-- version counters
-- a branch table
-- normalized project / episode / scene / character / causal-link / bill records
+Keep your existing `data/pressure_room.db` in the repo. The new backend uses the same location and performs an additive migration for screenplay text and snapshots.
 
-That is deliberate. A future collaborative version can move the same conceptual model to PostgreSQL + a realtime backend instead of redesigning the story system.
+The git tag `v0.1.0` remains the clean Streamlit checkpoint.
 
-## V2 collaboration direction
+## Sharing with friends
 
-A natural V2 architecture is:
+See [QUICK_START.md](QUICK_START.md), or open **How to use** inside Pressure Room.
 
-- PostgreSQL
-- FastAPI
-- React / Next.js
-- WebSockets or a realtime provider
-- presence (“X is editing Scene 14”)
-- comments and pitches
-- accepted vs proposed causal changes
-- version history
-- branches / alternate story directions
-- permissions
-- live causal-graph updates
+## GitHub
 
-## Philosophy
+GitHub sync is intentionally not required for v0.4. The portable `.pressureroom` format is now stable enough to become the unit of future GitHub snapshot/version sync.
 
-Pressure Room should never answer “what should I write?” before the writer has a chance to make a choice.
+## Development checks
 
-Its job is to keep asking:
+Backend:
 
-- What does the character want?
-- Why can’t they simply get it?
-- What are they relying on?
-- How does the story make that stop working?
-- What do they choose?
-- Therefore what must now be true?
-- What bill did that choice create?
-- What did it do to the character?
-- What options are no longer available?
-- Has their moral boundary moved?
+```bash
+cd backend
+pytest -q
+```
 
-**The writer remains the writer.**
+Frontend dependencies are deliberately small: Next, React, React DOM.

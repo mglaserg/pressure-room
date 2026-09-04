@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-set -e
-cd "$(dirname "$0")"
-if command -v uv >/dev/null 2>&1; then
-  uv sync
-  uv run nohup streamlit run app.py
-else
-  python3 -m venv .venv
-  source .venv/bin/activate
-  pip install -r requirements.txt
-  nohup streamlit run app.py --server.address 0.0.0.0
-fi
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cleanup() { jobs -p | xargs -r kill 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+(cd "$ROOT/backend" && uv sync && uv run uvicorn app.main:app --reload --port 8000) &
+(cd "$ROOT/frontend" && npm install && npm run dev) &
+wait

@@ -1,60 +1,91 @@
-# Pressure Room — Architecture Notes
+# Pressure Room — Architecture
 
 ## Product rule
 
-The application must remain valuable with the Writers' Room assistant completely disabled.
+**Power underneath. Calm on the surface.**
 
-The durable domain model is:
+Every screen has one obvious primary job. The rich story model is preserved, but advanced structure is progressively disclosed rather than presented all at once.
 
-**Project → Branch → Episode → Scene → Choice/Change**
+The durable domain model remains:
 
-with linked **Characters**, **Causal Links**, and **Bills**.
+**Project → Branch → Episode → Scene → Choice / Change**
 
-## V1
+linked to **Characters**, **Causal Links**, **Bills**, **Notes**, and **Snapshots**.
 
-- Streamlit UI
-- SQLite
-- Stable UUID primary keys
-- UTC timestamps
-- optimistic-version counters
-- normalized relationships
-- main branch pre-created for every story
+## V0.4 stack
 
-## Collaboration seam for V2
+### Frontend
+- Next.js 16 App Router
+- React 19
+- responsive CSS without a component-framework dependency
+- PWA manifest / mobile-safe viewport
+- local screenplay draft preservation plus debounced API autosave
 
-V1 intentionally avoids storing essential story state inside Streamlit session state. Durable state lives in the database.
+### Backend
+- FastAPI
+- SQLite for local-first V0.x
+- normalized UUID-based schema inherited from V0.1
+- export/import service
+- diagnostic service
 
-A collaborative implementation can replace SQLite with PostgreSQL and add:
+### Data migration
 
-1. authenticated users / room membership
-2. `created_by` and `updated_by`
-3. comments / pitches as first-class records
-4. proposed vs accepted changes
-5. revision/event log
-6. presence and active-editor state
-7. WebSocket/realtime subscriptions
-8. conflict handling for simultaneous edits
-9. branch comparison and merge semantics
+The backend opens the existing `data/pressure_room.db` location and performs additive migrations. V0.1 scene rows receive a `screenplay_text` column; existing project/character/episode/scene/bill IDs remain intact.
 
-The story vocabulary does not need to change.
+## Information architecture
 
-## Suggested V2 stack
+Top level is intentionally limited to four areas:
 
-- FastAPI API
+1. **Write** — screenplay + optional per-scene structure disclosure
+2. **Structure** — Story, Characters, Causality, Bills, Branches
+3. **Diagnose** — Story MRI, Pressure Lab, optional Room Questions
+4. **How to use** — onboarding / friend-friendly guide
+
+The former standalone Writers' Room page is no longer top-level. It is supplementary by design.
+
+## Portable project format
+
+A `.pressureroom` file is a ZIP package containing:
+
+- `project.json` — lossless structured project state
+- `story-packet.md`
+- `screenplay.fountain`
+- a small package README
+
+Import supports:
+- **copy** — remap UUIDs and create a distinct project
+- **replace** — restore the exact canonical UUID/state
+
+## Story laboratory
+
+V0.4 includes:
+- story branches
+- branch cloning
+- named project snapshots
+- snapshot restore API
+
+These remain behind **Structure → Branches** so they do not clutter writing.
+
+## V2 collaboration seam
+
+The conceptual model is already collaboration-friendly: stable UUIDs, timestamps, version counters, normalized entities, and portable snapshots.
+
+The expected V2 migration is:
 - PostgreSQL
-- React / Next.js
-- WebSockets or a hosted realtime layer
-- optional CRDT only for simultaneous screenplay-text editing
+- authenticated users / room membership
+- FastAPI remains the domain API
+- WebSockets or a realtime layer for presence and structured updates
+- comments / pitches / proposed vs accepted changes
+- optimistic concurrency for structured story objects
+- CRDT only if simultaneous screenplay-text editing actually requires it
 
-For structured objects such as scenes, bills, and causal links, ordinary optimistic concurrency is likely simpler than a CRDT.
+## GitHub
 
-## AI boundary
+GitHub is optional. The `.pressureroom` package is the boundary: future GitHub sync can version these snapshots without making Git knowledge a requirement for normal writing.
 
-The Writers' Room assistant is a supplementary reader/interrogator. It can:
-- question causality
-- surface unpaid bills
-- challenge easy exits
-- identify untransformed scenes
-- ask whether moral turns are earned
-
-It should not be required to create, edit, navigate, or analyze a project.
+Recommended progression:
+1. connect a repository
+2. push a named project snapshot
+3. pull latest snapshot with preview
+4. compare before restore
+5. keep creative story branches distinct from Git branches
