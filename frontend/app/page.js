@@ -22,7 +22,7 @@ export default function Home(){
   async function reload(preferScene){if(projectId)await loadWorkspace(projectId,preferScene)}
   async function createEpisode(){if(!project||!branch)return;const n=Math.max(0,...branchEpisodes.map(e=>e.number))+1;const r=await create(`/projects/${project.id}/episodes`,{branch_id:branch.id,number:n,title:`Episode ${n}`,logline:''});await reload();setEpisodeId(r.id)}
 
-  if(error)return <main className="boot"><div className="brand-mark">PR</div><h1>Pressure Room</h1><p>{error}</p><p className="muted">Make sure the FastAPI server is running on port 8000.</p></main>;
+  if(error)return <main className="boot"><div className="brand-mark">PR</div><h1>Pressure Room</h1><p>{error}</p><p className="muted">The web app loaded, but its API did not. This is now a server-side connection problem, not a browser/localhost problem.</p><div style={{display:'flex',gap:'.65rem',justifyContent:'center',flexWrap:'wrap',marginTop:'1rem'}}><button className="button" onClick={()=>{setError('');loadProjects().catch(e=>setError(e.message))}}>Retry</button><a className="button ghost" href="/api/health" target="_blank" rel="noreferrer">Open API health</a></div></main>;
   if(!workspace)return <main className="boot"><div className="brand-mark">PR</div><h1>Pressure Room</h1><p className="muted">Opening the room…</p></main>;
 
   return <main className="app-shell">

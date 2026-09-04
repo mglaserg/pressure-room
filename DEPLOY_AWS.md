@@ -1,68 +1,46 @@
-# Deploy Pressure Room on AWS
+# Pressure Room on AWS — v0.4.3
 
-Pressure Room v0.4.2 uses a same-origin web architecture:
+Pressure Room now uses a Next.js **Route Handler proxy** for every browser `/api/*` request.
+The browser only talks to the Next.js origin. Next.js talks to FastAPI on the server.
 
-```text
-Browser -> Next.js :3000 -> internal proxy -> FastAPI 127.0.0.1:8000
+## Expected topology
+
+Browser -> Next.js :3000 -> Route Handler `/api/*` -> FastAPI 127.0.0.1:8000
+
+Only port 3000 needs to be externally reachable when using the simple direct deployment.
+Port 8000 should remain private.
+
+## Three decisive checks
+
+Run these **on the AWS machine** after starting Pressure Room:
+
+```bash
+curl --max-time 5 -i http://127.0.0.1:8000/api/health
+curl --max-time 5 -i http://127.0.0.1:8000/api/projects
+curl --max-time 8 -i http://127.0.0.1:3000/api/health
 ```
 
-The FastAPI port does **not** need to be public.
+All three should return HTTP 200.
 
-## Quick start on the server
+Then from your own computer/browser open:
 
-From the repository root:
+```text
+http://YOUR_SERVER:3000/api/health
+```
+
+If that returns JSON, the browser-to-Next-to-FastAPI path works.
+
+## If the app shows “Opening the room…”
+
+v0.4.3 adds request timeouts. It should now turn a hung startup request into a visible error within roughly 12 seconds, with a button to open `/api/health`.
+
+## Running on a server
+
+For a quick direct deployment:
 
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-The frontend now binds to `0.0.0.0:3000`; FastAPI remains private on `127.0.0.1:8000`.
-
-## Verify on the AWS instance
-
-In another shell:
-
-```bash
-curl http://127.0.0.1:8000/api/health
-curl http://127.0.0.1:3000/api/health
-```
-
-Both should return JSON with `"ok": true`. The second request proves that Next.js is successfully proxying to FastAPI.
-
-## AWS Security Group
-
-For direct access during development, allow inbound TCP **3000** from your IP (or from the network/VPN you use). You do not need to expose port 8000.
-
-Then browse to:
-
-```text
-http://YOUR_AWS_PUBLIC_IP:3000
-```
-
-If you use NetBird/Tailscale/a VPN, use the server's VPN address instead and allow that traffic in the host firewall as needed.
-
-## Recommended later: HTTPS / reverse proxy
-
-For a durable deployment, put nginx/Caddy/your AWS load balancer in front of Next.js and expose only 80/443. Proxy all traffic to `127.0.0.1:3000`; Next.js will continue proxying `/api/*` internally to FastAPI.
-
-## If the page still does not open
-
-Check listeners:
-
-```bash
-ss -ltnp | grep -E ':3000|:8000'
-```
-
-Expected:
-- `0.0.0.0:3000` (Next.js)
-- `127.0.0.1:8000` (FastAPI)
-
-Then check the app itself:
-
-```bash
-curl -I http://127.0.0.1:3000
-curl http://127.0.0.1:3000/api/health
-```
-
-If those work on the server but not from your computer, the remaining issue is AWS Security Group / host firewall / routing rather than Pressure Room.
+For a durable deployment, put Next.js behind nginx/Caddy on 80/443 and run both Next.js and FastAPI under systemd or another process supervisor.
