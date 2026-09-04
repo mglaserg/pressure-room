@@ -74,3 +74,47 @@ def test_patch_field_whitelist():
         pid = client.get("/api/projects").json()[0]["id"]
         rejected = client.patch(f"/api/projects/{pid}", json={"data": {"definitely_not_a_column": "x"}})
         assert rejected.status_code == 400
+
+
+def test_character_patch_accepts_editable_fields_and_rejects_record_metadata():
+    with TestClient(app) as client:
+        pid = client.get("/api/projects").json()[0]["id"]
+        ws = client.get(f"/api/projects/{pid}").json()
+        cid = ws["characters"][0]["id"]
+        ok = client.patch(f"/api/characters/{cid}", json={"data": {
+            "name": "Mara Vale Revised",
+            "role": "Protagonist",
+            "want": "Win without losing herself.",
+            "moral_boundary": "Never fabricate evidence.",
+            "moral_score": 3,
+        }})
+        assert ok.status_code == 200
+        bad = client.patch(f"/api/characters/{cid}", json={"data": {"id": cid, "name": "Nope"}})
+        assert bad.status_code == 400
+
+
+def test_causal_link_validation_is_clear_and_duplicate_safe():
+    with TestClient(app) as client:
+        pid = client.get("/api/projects").json()[0]["id"]
+        ws = client.get(f"/api/projects/{pid}").json()
+        ep = ws["episodes"][0]
+        scenes = sorted([s for s in ws["scenes"] if s["episode_id"] == ep["id"]], key=lambda s: s["scene_no"])
+        assert len(scenes) >= 2
+
+        self_link = client.post(f"/api/episodes/{ep['id']}/links", json={"data": {
+            "from_scene_id": scenes[0]["id"], "relation": "THEREFORE", "to_scene_id": scenes[0]["id"], "note": "no"
+        }})
+        assert self_link.status_code == 400
+        assert "cannot cause itself" in self_link.json()["detail"]
+
+        relation = "THEREFORE"
+        while any(l["from_scene_id"] == scenes[0]["id"] and l["to_scene_id"] == scenes[1]["id"] and l["relation"] == relation for l in ws["causal_links"]):
+            relation = "BUT" if relation == "THEREFORE" else "THEREFORE"
+            if any(l["from_scene_id"] == scenes[0]["id"] and l["to_scene_id"] == scenes[1]["id"] and l["relation"] == relation for l in ws["causal_links"]):
+                break
+        payload = {"from_scene_id": scenes[0]["id"], "relation": relation, "to_scene_id": scenes[1]["id"], "note": "This choice forces the next scene."}
+        first = client.post(f"/api/episodes/{ep['id']}/links", json={"data": payload})
+        if first.status_code == 200:
+            duplicate = client.post(f"/api/episodes/{ep['id']}/links", json={"data": payload})
+            assert duplicate.status_code == 400
+            assert "already exists" in duplicate.json()["detail"]

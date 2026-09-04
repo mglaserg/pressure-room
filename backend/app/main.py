@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.4.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -46,12 +46,13 @@ PATCH_FIELDS = {
     "scenes": {"scene_no", "slugline", "pov_character_id", "opening_behavior", "scene_want", "obstacle", "tactic", "pressure", "choice", "start_state", "end_state", "cut_on", "notes", "screenplay_text", "moral_delta"},
     "bills": {"episode_id", "scene_id", "character_id", "title", "external_cost", "moral_cost", "status", "payoff_scene_id"},
     "branches": {"name", "is_main"},
+    "causal_links": {"from_scene_id", "relation", "to_scene_id", "note"},
 }
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.4.0"}
+    return {"ok": True, "version": "0.4.1"}
 
 
 @app.get("/api/projects")
@@ -121,8 +122,33 @@ def create_scene(episode_id: str, payload: Payload):
 @app.post("/api/episodes/{episode_id}/links")
 def create_link(episode_id: str, payload: Payload):
     d = payload.data
+    from_id = d.get("from_scene_id")
+    to_id = d.get("to_scene_id")
+    relation = str(d.get("relation", "")).upper()
+    if not from_id or not to_id:
+        raise HTTPException(400, "Choose both a source and destination scene")
+    if from_id == to_id:
+        raise HTTPException(400, "A scene cannot cause itself")
+    if relation not in {"THEREFORE", "BUT"}:
+        raise HTTPException(400, "Relationship must be THEREFORE or BUT")
+    valid_scene_ids = {row["id"] for row in db.rows("SELECT id FROM scenes WHERE episode_id=?", [episode_id])}
+    if from_id not in valid_scene_ids or to_id not in valid_scene_ids:
+        raise HTTPException(400, "Both scenes must belong to the selected episode")
+    duplicate = db.one(
+        "SELECT id FROM causal_links WHERE episode_id=? AND from_scene_id=? AND relation=? AND to_scene_id=?",
+        [episode_id, from_id, relation, to_id],
+    )
+    if duplicate:
+        raise HTTPException(400, "That causal connection already exists")
     try:
-        lid = db.insert("causal_links", {"episode_id": episode_id, "from_scene_id": d["from_scene_id"], "relation": d["relation"], "to_scene_id": d["to_scene_id"], "note": d.get("note", ""), "created_at": db.now_iso()})
+        lid = db.insert("causal_links", {
+            "episode_id": episode_id,
+            "from_scene_id": from_id,
+            "relation": relation,
+            "to_scene_id": to_id,
+            "note": str(d.get("note", "")).strip(),
+            "created_at": db.now_iso(),
+        })
     except Exception as exc:
         raise HTTPException(400, f"Could not create link: {exc}")
     return {"id": lid}
