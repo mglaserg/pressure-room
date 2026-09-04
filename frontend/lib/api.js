@@ -1,4 +1,4 @@
-export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+export const API = '/api';
 
 export async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, {

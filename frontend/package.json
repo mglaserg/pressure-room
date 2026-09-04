@@ -1,11 +1,11 @@
 {
   "name": "pressure-room-web",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start"
+    "start": "next start --hostname 0.0.0.0"
   },
   "dependencies": {
     "next": "16.3.3",

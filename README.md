@@ -8,6 +8,11 @@ V0.4 moves Pressure Room from its Streamlit prototype into a proper web applicat
 
 > **Want → Pressure → Choice → Consequence → Bill → Change**
 
+## Remote / AWS hosting
+
+As of v0.4.2, the browser uses same-origin `/api` requests and Next.js proxies them internally to FastAPI. This fixes the old localhost-only deployment behavior. Only the frontend port needs to be reachable externally. See [`DEPLOY_AWS.md`](DEPLOY_AWS.md).
+
+
 ## What changed from v0.1
 
 The biggest change is not more theory. It is **less interface**.
