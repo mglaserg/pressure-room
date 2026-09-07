@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.4.4", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.5.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -52,7 +52,7 @@ PATCH_FIELDS = {
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.4.4"}
+    return {"ok": True, "version": "0.5.0"}
 
 
 @app.get("/api/projects")

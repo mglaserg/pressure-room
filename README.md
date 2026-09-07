@@ -1,53 +1,64 @@
-# Pressure Room v0.4
+# Pressure Room v0.5
 
-**Writers, under pressure.**
+**Stories reveal character under pressure.**
 
 Pressure Room is a local-first screenwriting environment for developing stories through **pressure, choice, consequence, and moral movement**.
 
-V0.4 moves Pressure Room from its Streamlit prototype into a proper web application while preserving the original V0.1 story model.
-
 > **Want → Pressure → Choice → Consequence → Bill → Change**
 
-## Remote / AWS hosting
+V0.5 is the major product-design pass: the same story engine now feels like a **premium creative writing workspace rather than a development dashboard**.
 
-As of v0.4.4, the browser uses same-origin `/api` requests and an explicit Next.js Route Handler proxies them internally to FastAPI with timeouts and visible failure states. Only the frontend port needs to be reachable externally. See [`DEPLOY_AWS.md`](DEPLOY_AWS.md).
+## V0.5 design principles
 
+- **Editorial, not dashboard.** Screenplay and story language get visual priority over controls.
+- **Power underneath, calm on the surface.** Deep structure stays available without crowding the writer.
+- **Aesthetics are functional.** Typography, spacing, motion, and visual hierarchy are part of the writing experience.
+- **No fragile design dependencies.** The visual system uses native font stacks and local CSS—no external font/CDN requirement.
+- **Mobile is intentional.** Navigation, scene selection, structure disclosure, causal mapping, and forms reflow for touch rather than merely shrinking.
 
-## What changed from v0.1
+## The workspace
 
-The biggest change is not more theory. It is **less interface**.
+Pressure Room keeps only four top-level areas:
 
-The application now has only four top-level areas:
-
-- **Write** — screenplay text is the primary surface; scene structure is hidden until opened.
+- **Write** — screenplay text is the primary surface; scene structure stays tucked away until opened.
 - **Structure** — Story, Characters, Causality, Bills, Branches.
 - **Diagnose** — Story MRI, Pressure Lab, optional Room Questions.
 - **How to use** — onboarding designed to introduce Pressure Room to friends and collaborators.
 
-## v0.4 features
+## Highlights
 
 ### Write
-- actual screenplay text per scene
-- clean paper-like editor
-- mobile scene strip / desktop scene rail
+- paper-like screenplay canvas
+- editorial scene rail on desktop / swipeable scene strip on mobile
 - local draft preservation
 - debounced autosave
 - progressive-disclosure scene structure
-- Want / Pressure / Choice first; advanced fields stay tucked away
+- Want / Pressure / Choice as the first structural layer
+- deeper scene mechanics hidden until needed
 
-### Structure
-- Story Bible / Moral Spine
-- THEREFORE / BUT causality
-- Bill Ledger
-- story branches
-- branch cloning
-- named snapshots
+### Characters
+- character-dossier layout instead of a generic form
+- visual moral-compromise gauge
+- Want and Moral Boundary elevated as the core pair
+- Need, Core Belief, Fear, and Temptation remain progressively disclosed
+
+### Causality
+- redesigned story-wall view
+- scene cards connected by visible THEREFORE / BUT ribbons
+- causal notes shown directly in the chain
+- unconnected gaps are visible without being treated as errors
+- focused connection builder with a full-size “Why does this follow?” field
+
+### Bill Ledger
+- restrained ledger cards
+- external and moral costs separated clearly
+- status remains visible without dominating the writing experience
 
 ### Diagnose
-- Story MRI
-- Pressure Lab
-- optional Writers' Room interrogation questions
-- AI is **not** required
+- more readable Story MRI
+- calmer Pressure Lab
+- optional Room Questions remain supplementary
+- diagnostics are framed as lenses, never quality scores
 
 ### Share
 - complete `.pressureroom` project package
@@ -57,12 +68,7 @@ The application now has only four top-level areas:
 - Markdown story packet
 - Fountain screenplay export
 
-### Mobile
-- responsive layout
-- bottom navigation
-- swipeable scene rail
-- touch-sized controls
-- PWA manifest foundation
+The visual rules are documented in [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
 
 ## Run it on Windows
 
@@ -74,9 +80,20 @@ run.bat
 
 This opens the API and web frontend in separate terminal windows, then opens `http://localhost:3000`.
 
-## Run manually
+### Test the production frontend locally
 
-### 1. Backend
+```powershell
+cd frontend
+npm install
+npm run build
+npm run start
+```
+
+Then open `http://localhost:3000`.
+
+## Run manually for development
+
+### Backend
 
 ```bash
 cd backend
@@ -84,7 +101,7 @@ uv sync
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. Frontend
+### Frontend
 
 In another terminal:
 
@@ -94,17 +111,19 @@ npm install
 npm run dev
 ```
 
-Open:
+Open `http://localhost:3000`.
 
-```text
-http://localhost:3000
-```
+## Existing data
 
-## Existing v0.1 data
-
-Keep your existing `data/pressure_room.db` in the repo. The new backend uses the same location and performs an additive migration for screenplay text and snapshots.
+Keep your existing `data/pressure_room.db` in the repo. The backend continues to use the same database and UUID-based story model.
 
 The git tag `v0.1.0` remains the clean Streamlit checkpoint.
+
+## Remote / AWS hosting
+
+The browser uses same-origin `/api` requests and a Next.js Route Handler proxies them internally to FastAPI. Production hosting should use `next build` + `next start`, not `next dev`. See [`DEPLOY_AWS.md`](DEPLOY_AWS.md).
+
+The current AWS black-screen investigation is deployment-specific: the same production frontend has been confirmed to render on Windows.
 
 ## Sharing with friends
 
@@ -112,7 +131,7 @@ See [QUICK_START.md](QUICK_START.md), or open **How to use** inside Pressure Roo
 
 ## GitHub
 
-GitHub sync is intentionally not required for v0.4. The portable `.pressureroom` format is now stable enough to become the unit of future GitHub snapshot/version sync.
+GitHub sync remains optional. The portable `.pressureroom` package is the future unit of snapshot/version sync.
 
 ## Development checks
 
@@ -123,4 +142,4 @@ cd backend
 pytest -q
 ```
 
-Frontend dependencies are deliberately small: Next, React, React DOM.
+Frontend dependencies remain deliberately small: Next, React, React DOM.

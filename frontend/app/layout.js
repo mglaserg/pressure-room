@@ -2,12 +2,12 @@ import './globals.css';
 
 export const metadata = {
   title: 'Pressure Room',
-  description: 'Writers, under pressure.',
+  description: 'Stories reveal character under pressure.',
   manifest: '/manifest.webmanifest',
 };
 
 export const viewport = {
-  themeColor: '#0a0b0d',
+  themeColor: '#0b0c0d',
   width: 'device-width',
   initialScale: 1,
 };

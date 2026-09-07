@@ -23,23 +23,23 @@ export default function ShareSheet({open, onClose, project, onImported}) {
   }
 
   const exports = [
-    ['Pressure Room project', 'package', '.pressureroom — full editable project'],
-    ['Story packet PDF', 'pdf', 'Friendly, shareable overview'],
-    ['Story packet Markdown', 'markdown', 'Portable structured notes'],
-    ['Screenplay Fountain', 'fountain', 'Open in Fountain-compatible screenwriting tools'],
+    ['Pressure Room project', 'package', '.pressureroom', 'The complete editable room'],
+    ['Story packet', 'pdf', 'PDF', 'A polished overview for another writer'],
+    ['Structured notes', 'markdown', 'MD', 'Portable story architecture'],
+    ['Screenplay', 'fountain', 'FOUNTAIN', 'For Fountain-compatible writing tools'],
   ];
 
   return (
-    <Modal open={open} onClose={onClose} title="Share & export">
-      <p className="muted">Send the whole project to another writer, or export only what they need.</p>
+    <Modal open={open} onClose={onClose} title="Share the room">
+      <p className="modal-lead">Send the whole story to another writer, or hand them only the view they need.</p>
       <div className="export-list">
-        {exports.map(([label,kind,note]) => (
+        {exports.map(([label,kind,format,note]) => (
           <a className="export-row" key={kind} href={`${API}/projects/${project.id}/export/${kind}`}>
-            <div><strong>{label}</strong><span>{note}</span></div><b>↓</b>
+            <span className="export-format">{format}</span><div><strong>{label}</strong><span>{note}</span></div><b>↓</b>
           </a>
         ))}
       </div>
-      <div className="section-divider" />
+      <div className="section-divider"><span>or bring another room in</span></div>
       <div className="eyebrow">Import a project</div>
       <div className="segmented compact">
         <button className={mode==='copy'?'active':''} onClick={()=>setMode('copy')}>Import as copy</button>
@@ -48,7 +48,7 @@ export default function ShareSheet({open, onClose, project, onImported}) {
       <input ref={input} type="file" accept=".pressureroom,.zip" hidden onChange={e=>importFile(e.target.files?.[0])}/>
       <button className="button secondary full" disabled={busy} onClick={()=>input.current?.click()}>{busy?'Importing…':'Choose .pressureroom file'}</button>
       {message && <p className="form-message">{message}</p>}
-      <p className="microcopy">GitHub sync will build on this portable project format; it is not required to share or back up your work.</p>
+      <p className="microcopy">GitHub sync can build on this portable project format later; sharing never depends on it.</p>
     </Modal>
   );
 }

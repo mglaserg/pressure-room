@@ -20,8 +20,11 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     } else setDraft(blank);
   }, [selected?.id]);
 
+  useEffect(()=>()=>clearTimeout(timer.current),[]);
+
   function change(key, value) {
-    const next = {...draft, [key]: value}; setDraft(next);
+    const next = {...draft, [key]: value};
+    setDraft(next);
     if (key==='screenplay_text' && selected?.id) localStorage.setItem(`pressure-room-draft:${selected.id}`, value);
     if (!selected?.id) return;
     setSaveState('saving');
@@ -31,9 +34,14 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
       const payload = Object.fromEntries(fields.map(k=>[k,next[k] ?? '']));
       payload.pov_character_id = next.pov_character_id || null;
       payload.moral_delta = Number(next.moral_delta || 0);
-      try { await patch('scenes', selected.id, payload); setSaveState('saved'); localStorage.removeItem(`pressure-room-draft:${selected.id}`); }
-      catch { setSaveState('offline'); }
-    }, 750);
+      try {
+        await patch('scenes', selected.id, payload);
+        setSaveState('saved');
+        localStorage.removeItem(`pressure-room-draft:${selected.id}`);
+      } catch {
+        setSaveState('offline');
+      }
+    }, 700);
   }
 
   async function addScene() {
@@ -43,31 +51,46 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     await reload(r.id);
   }
 
-  if (!episode) return <Empty title="Create an episode to start writing."/>;
+  if (!episode) return <Empty title="Create an episode to start writing." body="Give the story somewhere to happen, then put a character under pressure."/>;
 
   return (
     <div className="write-layout">
       <aside className="scene-rail">
-        <div className="rail-head"><span>Scenes</span><button className="mini-button" onClick={addScene}>＋</button></div>
-        <div className="scene-scroll">
-          {scenes.map(s=><button key={s.id} className={`scene-item ${s.id===selected?.id?'active':''}`} onClick={()=>setSceneId(s.id)}><b>{String(s.scene_no).padStart(2,'0')}</b><span>{s.slugline || 'Untitled scene'}</span></button>)}
+        <div className="rail-head">
+          <div><span>Scenes</span><small>{scenes.length} in this episode</small></div>
+          <button className="mini-button" onClick={addScene} aria-label="New scene">＋</button>
         </div>
-        <button className="button ghost full" onClick={addScene}>＋ New scene</button>
+        <div className="scene-scroll">
+          {scenes.map(s=>{
+            const isActive=s.id===selected?.id;
+            return <button key={s.id} className={`scene-item ${isActive?'active':''}`} onClick={()=>setSceneId(s.id)}>
+              <span className="scene-index">{String(s.scene_no).padStart(2,'0')}</span>
+              <span className="scene-item-copy"><b>{s.slugline || 'Untitled scene'}</b><small>{s.choice || s.scene_want || 'No structural note yet'}</small></span>
+            </button>
+          })}
+        </div>
+        <button className="rail-add" onClick={addScene}>＋ <span>New scene</span></button>
       </aside>
 
       <main className="writer-canvas">
-        {selected ? <>
+        {selected ? <div className="writer-shell">
           <div className="writer-toolbar">
-            <div className="scene-number">SCENE {String(selected.scene_no).padStart(2,'0')}</div>
-            <div className={`save-state ${saveState}`}>{saveState==='saving'?'Saving…':saveState==='offline'?'Saved locally':'Saved'}</div>
+            <div className="writer-location"><span className="eyebrow">Episode {episode.number}</span><b>Scene {String(selected.scene_no).padStart(2,'0')}</b></div>
+            <div className={`save-state ${saveState}`}><i/>{saveState==='saving'?'Saving':saveState==='offline'?'Saved on this device':'Saved'}</div>
           </div>
-          <input className="slugline-input" value={draft.slugline || ''} onChange={e=>change('slugline', e.target.value)} aria-label="Scene heading"/>
-          <textarea className="screenplay-editor" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} placeholder="Write the scene…" spellCheck="true"/>
+
+          <section className="writer-paper">
+            <input className="slugline-input" value={draft.slugline || ''} onChange={e=>change('slugline', e.target.value)} aria-label="Scene heading" placeholder="INT. LOCATION — DAY"/>
+            <div className="paper-rule"/>
+            <textarea className="screenplay-editor" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} placeholder="Write the scene…" spellCheck="true"/>
+          </section>
+
           <button className={`structure-toggle ${structureOpen?'active':''}`} onClick={()=>setStructureOpen(v=>!v)}>
-            <span>Structure</span><span>{structureOpen?'Hide':'Want · Pressure · Choice'}</span>
+            <span className="structure-toggle-main"><i/><span><b>Scene structure</b><small>{draft.scene_want || draft.pressure || draft.choice ? 'The machinery under the page' : 'Add only what helps you write the next beat'}</small></span></span>
+            <span className="structure-toggle-meta">{structureOpen?'Close':'Want · Pressure · Choice'} <b>{structureOpen?'↑':'↓'}</b></span>
           </button>
-          {structureOpen && <StructurePanel draft={draft} change={change} characters={workspace.characters || []}/>} 
-        </> : <Empty title="No scenes yet." action="Create the first scene" onAction={addScene}/>} 
+          {structureOpen && <StructurePanel draft={draft} change={change} characters={workspace.characters || []}/>}
+        </div> : <Empty title="No scenes yet." body="A blank wall is useful for about thirty seconds." action="Create the first scene" onAction={addScene}/>}
       </main>
     </div>
   );
@@ -75,13 +98,13 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
 
 function StructurePanel({draft, change, characters}) {
   return <section className="structure-panel">
-    <div className="three-up">
-      <Field label="Want" value={draft.scene_want} onChange={v=>change('scene_want',v)} placeholder="What do they want?"/>
-      <Field label="Pressure" value={draft.pressure} onChange={v=>change('pressure',v)} placeholder="What narrows their options?"/>
-      <Field label="Choice" value={draft.choice} onChange={v=>change('choice',v)} placeholder="What do they decide?"/>
+    <div className="structure-core">
+      <Field className="structure-field want" label="Want" hint="The objective" value={draft.scene_want} onChange={v=>change('scene_want',v)} placeholder="What are they trying to get?"/>
+      <Field className="structure-field pressure" label="Pressure" hint="The narrowing" value={draft.pressure} onChange={v=>change('pressure',v)} placeholder="What removes the easy option?"/>
+      <Field className="structure-field choice" label="Choice" hint="The turn" value={draft.choice} onChange={v=>change('choice',v)} placeholder="What do they decide or commit to?"/>
     </div>
     <details className="advanced-details">
-      <summary>Advanced structure</summary>
+      <summary><span>Deeper structure</span><small>Open when the scene needs diagnosis</small></summary>
       <div className="form-grid">
         <label>POV / pressure character<select value={draft.pov_character_id || ''} onChange={e=>change('pov_character_id', e.target.value || null)}><option value="">—</option>{characters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         <Field label="Opening behavior / image" value={draft.opening_behavior} onChange={v=>change('opening_behavior',v)}/>
@@ -96,5 +119,10 @@ function StructurePanel({draft, change, characters}) {
   </section>
 }
 
-function Field({label,value,onChange,placeholder=''}) { return <label>{label}<textarea rows="2" value={value || ''} placeholder={placeholder} onChange={e=>onChange(e.target.value)}/></label> }
-function Empty({title,action,onAction}) { return <div className="empty-state"><div className="empty-mark">PR</div><h2>{title}</h2>{action&&<button className="button" onClick={onAction}>{action}</button>}</div> }
+function Field({label,value,onChange,placeholder='',hint='',className=''}) {
+  return <label className={className}><span className="field-label"><b>{label}</b>{hint&&<small>{hint}</small>}</span><textarea rows="2" value={value || ''} placeholder={placeholder} onChange={e=>onChange(e.target.value)}/></label>
+}
+
+function Empty({title,body,action,onAction}) {
+  return <div className="empty-state"><div className="empty-orbit"><span>P</span><i/><span>R</span></div><h2>{title}</h2>{body&&<p className="muted">{body}</p>}{action&&<button className="button" onClick={onAction}>{action}</button>}</div>
+}

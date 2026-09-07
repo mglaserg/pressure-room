@@ -1,6 +1,41 @@
 'use client';
-export default function HelpView(){return <div className="help-page"><section className="hero-card"><div className="eyebrow">60-second introduction</div><h1>Pressure Room helps you see why the next scene has to happen.</h1><p>It is not a beat-sheet template and it is not an AI story generator. It keeps the writer focused on <b>pressure, choice, consequence, and moral movement.</b></p><div className="engine-strip"><span>Want</span><b>→</b><span>Pressure</span><b>→</b><span>Choice</span><b>→</b><span>Consequence</span><b>→</b><span>Bill</span><b>→</b><span>Change</span></div></section>
-<section className="focus-card"><div className="eyebrow">Start here</div><h2>Your first ten minutes</h2><ol className="steps"><li><b>Create the character’s moral spine.</b><span>What do they want? What will they not do?</span></li><li><b>Write a scene.</b><span>Stay in Write mode. Get words on the page first.</span></li><li><b>Open Structure only when useful.</b><span>Name the want, pressure, and choice. Hide it again.</span></li><li><b>Connect the next scene.</b><span>THEREFORE this happens — or BUT the solution creates a new problem.</span></li><li><b>Record the bill.</b><span>What changed in the world, and what did the choice do to the character?</span></li><li><b>Diagnose later.</b><span>Story MRI and Room Questions are there to challenge the outline, not interrupt writing.</span></li></ol></section>
-<section className="help-grid"><Guide title="Write" body="The screenplay is the main surface. Structural fields stay tucked away until you open them."/><Guide title="Structure" body="Story Bible, causality, bills, branches, and snapshots. One structural task at a time."/><Guide title="Diagnose" body="Story MRI, pressure moves, and optional Writers’ Room questions. These are lenses, not grades."/><Guide title="Share" body="Export a full .pressureroom project, a PDF story packet, Markdown notes, or Fountain screenplay."/></section>
-<section className="focus-card"><div className="eyebrow">Introduce it to friends</div><h2>The one-sentence explanation</h2><p className="lead-quote">“Pressure Room is a screenwriting workspace that tracks what a character wants, what pressure makes them choose, and what every choice costs.”</p><a className="button secondary" href="/pressure-room-quick-start.md" download>Download quick start</a></section></div>}
-function Guide({title,body}){return <article className="inner-card"><h3>{title}</h3><p>{body}</p></article>}
+
+export default function HelpView(){
+  return <div className="help-page">
+    <section className="hero-card help-hero">
+      <div className="hero-watermark">PR</div>
+      <div className="eyebrow">The method in sixty seconds</div>
+      <h1>Put the character in the room. Close the easy exits.</h1>
+      <p>Pressure Room is a writing workspace for seeing why the next scene has to happen. It keeps the writer focused on <b>pressure, choice, consequence, and moral movement</b> without forcing the story into a generic beat sheet.</p>
+      <div className="engine-strip"><Engine n="01" label="Want"/><b>→</b><Engine n="02" label="Pressure"/><b>→</b><Engine n="03" label="Choice"/><b>→</b><Engine n="04" label="Bill"/><b>→</b><Engine n="05" label="Change"/></div>
+    </section>
+
+    <section className="focus-card start-guide">
+      <div className="guide-heading"><div><div className="eyebrow">Start here</div><h2>Your first ten minutes</h2></div><p>Do not fill everything out. Use only what helps the next choice become clearer.</p></div>
+      <ol className="steps">
+        <Step n="01" title="Create the moral spine" body="What does the character want? What do they believe they will never do?"/>
+        <Step n="02" title="Write before diagnosing" body="Stay in Write. Get the scene onto the page before making the structure explain it."/>
+        <Step n="03" title="Name the turn" body="Open Scene Structure and capture Want → Pressure → Choice. Close it again."/>
+        <Step n="04" title="Make the next scene inevitable" body="Connect the scene with THEREFORE — or let the solution create a new problem with BUT."/>
+        <Step n="05" title="Record the bill" body="What changed in the world? What did making that choice do to the character?"/>
+        <Step n="06" title="Diagnose later" body="Use Story MRI and Room Questions when the outline needs pressure-testing, not while the scene is alive."/>
+      </ol>
+    </section>
+
+    <section className="help-grid">
+      <Guide symbol="✎" title="Write" body="The screenplay is the primary surface. The app should disappear while the scene is working."/>
+      <Guide symbol="⑂" title="Structure" body="Moral spines, causality, bills, branches, and snapshots—one structural task at a time."/>
+      <Guide symbol="◌" title="Diagnose" body="Story MRI, pressure moves, and optional room questions. Lenses, never grades."/>
+      <Guide symbol="↗" title="Share" body="Send the full project or export a story packet, Markdown notes, or Fountain screenplay."/>
+    </section>
+
+    <section className="focus-card friend-card">
+      <div><div className="eyebrow">Introduce it to a friend</div><h2>The one-sentence explanation</h2><blockquote>“Pressure Room tracks what a character wants, what pressure makes them choose, and what every choice costs.”</blockquote></div>
+      <a className="button secondary" href="/pressure-room-quick-start.md" download>Download quick start</a>
+    </section>
+  </div>
+}
+
+function Engine({n,label}){return <span><small>{n}</small>{label}</span>}
+function Step({n,title,body}){return <li><span>{n}</span><div><b>{title}</b><p>{body}</p></div></li>}
+function Guide({symbol,title,body}){return <article className="guide-card"><span className="guide-symbol">{symbol}</span><div><h3>{title}</h3><p>{body}</p></div></article>}

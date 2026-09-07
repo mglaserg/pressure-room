@@ -12,7 +12,7 @@ The durable domain model remains:
 
 linked to **Characters**, **Causal Links**, **Bills**, **Notes**, and **Snapshots**.
 
-## V0.4 stack
+## V0.5 stack
 
 ### Frontend
 - Next.js 16 App Router
@@ -58,7 +58,7 @@ Import supports:
 
 ## Story laboratory
 
-V0.4 includes:
+V0.5 includes:
 - story branches
 - branch cloning
 - named project snapshots
@@ -89,3 +89,19 @@ Recommended progression:
 3. pull latest snapshot with preview
 4. compare before restore
 5. keep creative story branches distinct from Git branches
+
+
+## V0.5 visual system
+
+V0.5 formalizes design as part of product behavior. The application uses:
+
+- warm graphite surfaces instead of generic black dashboard panels
+- an editorial serif stack for story hierarchy and a restrained sans-serif UI stack
+- a paper-toned screenplay canvas with monospaced screenplay typography
+- brass as a limited interaction/accent color rather than a decorative wash
+- fewer visible borders and more whitespace
+- progressively disclosed forms
+- mobile-specific navigation and scene selection
+- a visual causality wall rather than a database-like link list
+
+No external font or design-system CDN is required, reducing local/remote rendering differences.
