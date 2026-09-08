@@ -1,0 +1,108 @@
+name: Deploy Pressure Room backend
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend-ecs-express.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+
+jobs:
+  deploy:
+    name: Build and deploy backend
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: PressureRoomECSDeploy
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+
+      - name: Deploy ECS Express Mode service
+        id: deploy
+        uses: aws-actions/amazon-ecs-deploy-express-service@v1
+        with:
+          service-name: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          image: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+          execution-role-arn: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
+          infrastructure-role-arn: ${{ vars.ECS_INFRASTRUCTURE_ROLE_ARN }}
+
+          container-port: 8000
+          health-check-path: /api/health
+
+          cpu: "512"
+          memory: "1024"
+
+          min-task-count: 1
+          max-task-count: 1
+
+          environment-variables: |
+            [
+              {
+                "name": "GOOGLE_CLIENT_ID",
+                "value": "${{ vars.GOOGLE_CLIENT_ID }}"
+              },
+              {
+                "name": "PRESSURE_ROOM_PUBLIC_URL",
+                "value": "${{ vars.PRESSURE_ROOM_PUBLIC_URL }}"
+              },
+              {
+                "name": "PRESSURE_ROOM_ALLOWED_EMAIL",
+                "value": "${{ vars.PRESSURE_ROOM_ALLOWED_EMAIL }}"
+              }
+            ]
+
+          secrets: |
+            [
+              {
+                "name": "GOOGLE_CLIENT_SECRET",
+                "valueFrom": "${{ vars.GOOGLE_CLIENT_SECRET_ARN }}"
+              },
+              {
+                "name": "PRESSURE_ROOM_SESSION_KEY",
+                "valueFrom": "${{ vars.PRESSURE_ROOM_SESSION_KEY_ARN }}"
+              }
+            ]
+
+      - name: Publish deployed endpoint
+        shell: bash
+        run: |
+          echo "### Pressure Room backend deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.deploy.outputs.endpoint }}" >> "$GITHUB_STEP_SUMMARY"
