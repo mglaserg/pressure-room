@@ -5,9 +5,10 @@ applications:
       phases:
         preBuild:
           commands:
-            - npm install
+            - npm ci
         build:
           commands:
+            - env | grep -e '^PRESSURE_ROOM_API_URL=' >> .env.production || true
             - npm run build
       artifacts:
         baseDirectory: .next
@@ -15,3 +16,5 @@ applications:
           - '**/*'
       cache:
         paths:
+          - node_modules/**/*
+          - .next/cache/**/*

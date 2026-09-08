@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.5.2", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -52,7 +52,16 @@ PATCH_FIELDS = {
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.5.0"}
+    return {"ok": True, "version": "0.5.2", "database": db.database_backend()}
+
+
+@app.get("/api/ready")
+def ready():
+    try:
+        db.ping()
+    except Exception as exc:
+        raise HTTPException(503, f"Database unavailable: {exc}")
+    return {"ok": True, "database": db.database_backend()}
 
 
 @app.get("/api/projects")
