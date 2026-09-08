@@ -8,17 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:  # Local checkout before dependencies are synced.
-    psycopg = None
-    dict_row = None
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.getenv("PRESSURE_ROOM_DB", ROOT / "data" / "pressure_room.db"))
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
 
 class SQLiteConnection(sqlite3.Connection):
@@ -30,54 +22,6 @@ class SQLiteConnection(sqlite3.Connection):
         finally:
             self.close()
 
-class PostgresConnection:
-    """Tiny compatibility wrapper so the existing qmark SQL works on psycopg."""
-
-    def __init__(self, url: str):
-        if psycopg is None:
-            raise RuntimeError(
-                "DATABASE_URL is PostgreSQL, but psycopg is not installed. "
-                "Run `uv sync` (local) or redeploy the backend."
-            )
-        self._connection = psycopg.connect(url, row_factory=dict_row)
-
-    @staticmethod
-    def _sql(sql: str) -> str:
-        # Pressure Room's SQL uses DB-API qmark placeholders and contains no
-        # literal question marks, so the conversion is intentionally small.
-        return sql.replace("?", "%s")
-
-    def execute(self, sql: str, params: Iterable[Any] = ()):
-        return self._connection.execute(self._sql(sql), tuple(params))
-
-    def executescript(self, script: str) -> None:
-        for statement in script.split(";"):
-            statement = statement.strip()
-            if statement:
-                self._connection.execute(statement)
-
-    def commit(self) -> None:
-        self._connection.commit()
-
-    def rollback(self) -> None:
-        self._connection.rollback()
-
-    def close(self) -> None:
-        self._connection.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        try:
-            if exc_type is None:
-                self._connection.commit()
-            else:
-                self._connection.rollback()
-        finally:
-            self._connection.close()
-        return False
-
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -88,9 +32,6 @@ def uid() -> str:
 
 
 def connect():
-    if USE_POSTGRES:
-        return PostgresConnection(DATABASE_URL)
-
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB_PATH, factory=SQLiteConnection)
     con.row_factory = sqlite3.Row
@@ -214,7 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_project ON snapshots(project_id);
 
 
 def database_backend() -> str:
-    return "postgresql" if USE_POSTGRES else "sqlite"
+    return "sqlite"
 
 
 def ping() -> None:
@@ -223,17 +164,6 @@ def ping() -> None:
 
 
 def _has_column(con, table: str, column: str) -> bool:
-    if USE_POSTGRES:
-        return con.execute(
-            """
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_schema=current_schema()
-              AND table_name=?
-              AND column_name=?
-            """,
-            (table, column),
-        ).fetchone() is not None
     return any(r[1] == column for r in con.execute(f"PRAGMA table_info({table})"))
 
 
@@ -297,6 +227,30 @@ def delete(table: str, object_id: str) -> None:
     execute(f"DELETE FROM {table} WHERE id=?", [object_id])
 
 
+def clear_projects() -> None:
+    execute("DELETE FROM projects")
+
+
+def project_id_for_object(table: str, object_id: str) -> str | None:
+    if table == "projects":
+        row = one("SELECT id AS project_id FROM projects WHERE id=?", [object_id])
+    elif table in {"characters", "episodes", "bills", "branches", "snapshots"}:
+        row = one(f"SELECT project_id FROM {table} WHERE id=?", [object_id])
+    elif table == "scenes":
+        row = one(
+            "SELECT e.project_id FROM scenes s JOIN episodes e ON s.episode_id=e.id WHERE s.id=?",
+            [object_id],
+        )
+    elif table == "causal_links":
+        row = one(
+            "SELECT e.project_id FROM causal_links l JOIN episodes e ON l.episode_id=e.id WHERE l.id=?",
+            [object_id],
+        )
+    else:
+        return None
+    return row["project_id"] if row else None
+
+
 def get_projects() -> list[dict]:
     return rows("SELECT * FROM projects ORDER BY updated_at DESC")
 
@@ -349,7 +303,7 @@ def get_bills(project_id: str) -> list[dict]:
     """, [project_id])
 
 
-def project_payload(project_id: str) -> dict:
+def project_payload(project_id: str, include_snapshots: bool = False) -> dict:
     project = one("SELECT * FROM projects WHERE id=?", [project_id])
     if not project:
         raise KeyError(project_id)
@@ -363,9 +317,9 @@ def project_payload(project_id: str) -> dict:
         links.extend(get_links(episode["id"]))
     bills = get_bills(project_id)
     notes = rows("SELECT * FROM story_notes WHERE project_id=? ORDER BY created_at", [project_id])
-    return {
+    payload = {
         "format": "pressure-room",
-        "format_version": 1,
+        "format_version": 2 if include_snapshots else 1,
         "exported_at": now_iso(),
         "project": project,
         "branches": branches,
@@ -376,6 +330,12 @@ def project_payload(project_id: str) -> dict:
         "bills": bills,
         "story_notes": notes,
     }
+    if include_snapshots:
+        payload["snapshots"] = rows(
+            "SELECT * FROM snapshots WHERE project_id=? ORDER BY created_at",
+            [project_id],
+        )
+    return payload
 
 
 def workspace(project_id: str) -> dict:
@@ -478,6 +438,12 @@ def import_payload(payload: dict, mode: str = "copy") -> str:
         data["project_id"] = project_id
         data["object_id"] = mapped(note.get("object_id")) or note.get("object_id", "")
         insert("story_notes", data)
+    if mode == "replace":
+        for snap in payload.get("snapshots", []):
+            data = {k: v for k, v in snap.items() if k != "id"}
+            data["id"] = snap["id"]
+            data["project_id"] = project_id
+            insert("snapshots", data)
     return project_id
 
 

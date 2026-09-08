@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -118,3 +119,23 @@ def test_causal_link_validation_is_clear_and_duplicate_safe():
             duplicate = client.post(f"/api/episodes/{ep['id']}/links", json={"data": payload})
             assert duplicate.status_code == 400
             assert "already exists" in duplicate.json()["detail"]
+
+
+
+def test_google_drive_status_defaults_to_local_without_oauth_config():
+    with TestClient(app) as client:
+        status = client.get("/api/google/status")
+        assert status.status_code == 200
+        assert status.json()["storage"] == "local-sqlite"
+
+
+def test_canonical_drive_payload_carries_snapshot_history_without_recursion():
+    with TestClient(app) as client:
+        pid = client.get("/api/projects").json()[0]["id"]
+        snap = client.post(f"/api/projects/{pid}/snapshots", json={"label": "Drive checkpoint"})
+        assert snap.status_code == 200
+        canonical = db.project_payload(pid, include_snapshots=True)
+        assert canonical["format_version"] == 2
+        assert canonical["snapshots"]
+        nested = json.loads(canonical["snapshots"][0]["payload_json"])
+        assert "snapshots" not in nested

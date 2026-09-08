@@ -13,3 +13,4 @@ run:
     port: 8000
   env:
     - name: PYTHONUNBUFFERED
+      value: "1"

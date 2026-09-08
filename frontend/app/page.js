@@ -26,6 +26,7 @@ export default function Home(){
   const [share,setShare]=useState(false);
   const [newStory,setNewStory]=useState(false);
   const [error,setError]=useState('');
+  const [drive,setDrive]=useState(null);
 
   async function loadProjects(prefer){
     const ps=await api('/projects');
@@ -46,7 +47,14 @@ export default function Home(){
     setSceneId(preferScene||sc.find(s=>s.id===sceneId)?.id||sc[0]?.id||'');
   }
 
-  useEffect(()=>{loadProjects().catch(e=>setError(e.message))},[]);
+  async function boot(){
+    const status=await api('/google/status');
+    setDrive(status);
+    if(status.required&&!status.connected)return;
+    await loadProjects();
+  }
+
+  useEffect(()=>{boot().catch(e=>setError(e.message))},[]);
 
   const project=workspace?.project;
   const branch=workspace?.branches.find(b=>b.id===branchId);
@@ -71,10 +79,25 @@ export default function Home(){
   if(error)return <main className="boot boot-error">
     <BrandMark large/>
     <div className="boot-copy"><span className="eyebrow">The room is closed</span><h1>Pressure Room</h1><p>{error}</p><p className="muted">The interface loaded, but it could not reach the story service.</p></div>
-    <div className="boot-actions"><button className="button" onClick={()=>{setError('');loadProjects().catch(e=>setError(e.message))}}>Try again</button><a className="button secondary" href="/api/health" target="_blank" rel="noreferrer">API health</a></div>
+    <div className="boot-actions"><button className="button" onClick={()=>{setError('');boot().catch(e=>setError(e.message))}}>Try again</button><a className="button secondary" href="/api/health" target="_blank" rel="noreferrer">API health</a></div>
   </main>;
 
-  if(!workspace)return <main className="boot"><BrandMark large/><div className="boot-copy"><span className="eyebrow">Pressure Room</span><h1>Opening the room</h1><p className="muted">Bringing your story back onto the wall.</p></div><div className="boot-pulse" aria-hidden="true"><i/><i/><i/></div></main>;
+  if(drive?.required&&!drive.connected)return <main className="boot">
+    <BrandMark large/>
+    <div className="boot-copy">
+      <span className="eyebrow">Your stories. Your Drive.</span>
+      <h1>Open Pressure Room</h1>
+      {drive.configured
+        ? <><p>Connect Google Drive to open the room. Pressure Room will create a visible <b>Pressure Room</b> folder and keep each story there as a portable project file.</p><p className="muted">Pressure Room only requests access to files it creates or you explicitly open with the app.</p></>
+        : <><p>Google Drive storage is not configured on the story service.</p><p className="muted">{drive.error}</p></>}
+    </div>
+    <div className="boot-actions">
+      {drive.configured&&<a className="button" href="/api/google/connect">Connect Google Drive</a>}
+      <a className="button secondary" href="/api/health" target="_blank" rel="noreferrer">API health</a>
+    </div>
+  </main>;
+
+  if(drive===null||!workspace)return <main className="boot"><BrandMark large/><div className="boot-copy"><span className="eyebrow">Pressure Room</span><h1>Opening the room</h1><p className="muted">{drive?.connected?'Bringing your stories down from Google Drive.':'Bringing your story back onto the wall.'}</p></div><div className="boot-pulse" aria-hidden="true"><i/><i/><i/></div></main>;
 
   return <main className="app-shell">
     <header className="topbar">
@@ -91,7 +114,11 @@ export default function Home(){
         {branchEpisodes.length?<label className="context-select"><span>Episode</span><select value={episode?.id||''} onChange={e=>{setEpisodeId(e.target.value);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}</select></label>:<button className="context-add" onClick={createEpisode}>＋ Episode</button>}
       </div>
 
-      <div className="top-actions"><button className="quiet-action" onClick={()=>setNewStory(true)}>＋ Story</button><button className="button compact" onClick={()=>setShare(true)}>Share</button></div>
+      <div className="top-actions">
+        {drive?.connected&&<a className="quiet-action" href="/api/google/disconnect" title={drive.email||'Google Drive'}>Drive ✓</a>}
+        <button className="quiet-action" onClick={()=>setNewStory(true)}>＋ Story</button>
+        <button className="button compact" onClick={()=>setShare(true)}>Share</button>
+      </div>
     </header>
 
     <nav className="primary-nav" aria-label="Primary workspace">
@@ -105,7 +132,7 @@ export default function Home(){
       {mode==='help'&&<HelpView/>}
     </div>
 
-    <ShareSheet open={share} onClose={()=>setShare(false)} project={project} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
+    <ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </main>
 }
