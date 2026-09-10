@@ -1,0 +1,137 @@
+:root{
+  /* Pressure Room design system v0.5.4 */
+
+  /* Neutral system */
+  --neutral-950:#0b0c0d;
+  --neutral-850:#1d2022;
+  --neutral-650:#555a57;
+  --neutral-450:#8d918f;
+  --neutral-250:#c8c6bf;
+  --neutral-100:#f2efe8;
+
+  /* Semantic surfaces + text */
+  --surface-app:var(--neutral-950);
+  --surface-elevated:#0f1112;
+  --surface-panel:#121416;
+  --surface-panel-2:#171a1c;
+  --surface-panel-3:var(--neutral-850);
+  --text-primary:var(--neutral-100);
+  --text-secondary:#d8d4cb;
+  --text-muted:var(--neutral-450);
+  --text-subtle:var(--neutral-650);
+
+  /* Lines + overlays */
+  --border-subtle:rgba(255,255,255,.075);
+  --border-strong:rgba(255,255,255,.14);
+  --overlay-faint:rgba(255,255,255,.018);
+  --overlay-soft:rgba(255,255,255,.04);
+  --overlay-medium:rgba(255,255,255,.08);
+  --overlay-strong:rgba(255,255,255,.16);
+
+  /* Accent + statuses */
+  --accent:#caa96a;
+  --accent-strong:#dfbf7b;
+  --accent-ink:#17130c;
+  --accent-wash:rgba(202,169,106,.035);
+  --accent-soft:rgba(202,169,106,.08);
+  --accent-border:rgba(202,169,106,.20);
+  --accent-border-strong:rgba(202,169,106,.38);
+  --accent-focus:rgba(202,169,106,.54);
+  --danger:#c97f70;
+  --danger-bright:#db9689;
+  --danger-wash:rgba(201,127,112,.08);
+  --danger-border:rgba(201,127,112,.35);
+  --success:#7eaa8b;
+  --success-wash:rgba(126,170,139,.08);
+  --success-border:rgba(126,170,139,.35);
+  --info:#7f9dae;
+
+  /* Writing surface */
+  --paper:#f1eadc;
+  --paper-ink:#1c1b18;
+  --paper-muted:#8b857a;
+  --paper-caret:#5b4420;
+
+  /* Seven-step UI type scale */
+  --type-xs:.75rem;
+  --type-sm:.8125rem;
+  --type-body:.9375rem;
+  --type-body-lg:1rem;
+  --type-title-sm:1.125rem;
+  --type-title:1.5rem;
+  --type-heading:2rem;
+  --weight-regular:400;
+  --weight-medium:500;
+  --weight-semibold:600;
+  --weight-bold:700;
+  --weight-heavy:800;
+
+  /* Three radii + semantic pill */
+  --radius-sm:6px;
+  --radius-md:12px;
+  --radius-lg:20px;
+  --radius-pill:999px;
+
+  --shadow:0 24px 80px rgba(0,0,0,.30);
+  --shadow-paper:0 28px 90px rgba(0,0,0,.34),0 2px 4px rgba(0,0,0,.15);
+  --focus-ring:0 0 0 4px rgba(202,169,106,.14);
+
+  /* Font families remain intentionally unchanged in this pass. */
+  --font-ui:var(--font-pressure-ui),ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-display:var(--font-pressure-display),Georgia,serif;
+  --font-script:var(--font-pressure-script),"Courier New",Courier,monospace;
+
+  /* Temporary compatibility aliases; remove as components are migrated. */
+  --bg:var(--surface-app);
+  --bg-elev:var(--surface-elevated);
+  --panel:var(--surface-panel);
+  --panel-2:var(--surface-panel-2);
+  --panel-3:var(--surface-panel-3);
+  --line:var(--border-subtle);
+  --line-strong:var(--border-strong);
+  --text:var(--text-primary);
+  --text-soft:var(--text-secondary);
+  --muted:var(--text-muted);
+  --muted-2:var(--text-subtle);
+  --accent-bright:var(--accent-strong);
+  --red:var(--danger);
+  --green:var(--success);
+  --blue:var(--info);
+  --radius:var(--radius-md);
+}
+
+*{box-sizing:border-box}
+html{background:var(--surface-app);color-scheme:dark}
+html,body{margin:0;min-height:100%;background:var(--surface-app);color:var(--text-primary);font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
+body{background:
+  radial-gradient(circle at 18% -10%,var(--accent-soft),transparent 28rem),
+  radial-gradient(circle at 85% 12%,rgba(90,103,106,.06),transparent 30rem),
+  var(--surface-app)}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer}
+a{color:inherit;text-decoration:none}
+::selection{background:var(--accent-border)}
+
+input,textarea,select{
+  width:100%;
+  background:rgba(5,6,7,.46);
+  border:1px solid var(--border-subtle);
+  color:var(--text-primary);
+  border-radius:var(--radius-md);
+  padding:.84rem .92rem;
+  outline:none;
+  transition:border-color .16s ease,background .16s ease,box-shadow .16s ease;
+}
+input::placeholder,textarea::placeholder{color:var(--neutral-450)}
+input:hover,textarea:hover,select:hover{border-color:var(--overlay-medium);background:rgba(8,9,10,.62)}
+input:focus,textarea:focus,select:focus{border-color:var(--accent-focus);box-shadow:0 0 0 3px var(--accent-soft);background:rgba(8,9,10,.78)}
+textarea{resize:vertical;line-height:1.5}
+label{display:grid;gap:.48rem;color:var(--neutral-250);font-size:var(--type-sm);font-weight:var(--weight-bold);letter-spacing:.005em;min-width:0}
+
+h1,h2,h3,p{overflow-wrap:anywhere}
+h1,h2,h3{font-family:var(--font-display);font-weight:var(--weight-medium);color:var(--neutral-100)}
+h1{letter-spacing:-.035em}
+h2,h3{letter-spacing:-.02em}
+
+.app-shell{min-height:100vh}
+.workspace{min-height:calc(100vh - 132px)}

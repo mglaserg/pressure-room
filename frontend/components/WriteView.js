@@ -1,6 +1,7 @@
 'use client';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {create, patch} from '@/lib/api';
+import {parseFountain} from '@/lib/fountain.mjs';
 
 const blank = {slugline:'', screenplay_text:'', opening_behavior:'', scene_want:'', obstacle:'', tactic:'', pressure:'', choice:'', start_state:'', end_state:'', cut_on:'', notes:'', moral_delta:0, pov_character_id:null};
 
@@ -10,6 +11,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
   const [draft, setDraft] = useState(selected || blank);
   const [structureOpen, setStructureOpen] = useState(false);
   const [saveState, setSaveState] = useState('saved');
+  const [viewMode, setViewMode] = useState('edit');
   const timer = useRef(null);
 
   useEffect(()=>{
@@ -20,7 +22,17 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     } else setDraft(blank);
   }, [selected?.id]);
 
+  useEffect(()=>{
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('pressure-room-write-view') : null;
+    if (saved === 'page') setViewMode('page');
+  },[]);
+
   useEffect(()=>()=>clearTimeout(timer.current),[]);
+
+  function chooseView(nextMode) {
+    setViewMode(nextMode);
+    if (typeof window !== 'undefined') localStorage.setItem('pressure-room-write-view', nextMode);
+  }
 
   function change(key, value) {
     const next = {...draft, [key]: value};
@@ -76,14 +88,22 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
         {selected ? <div className="writer-shell">
           <div className="writer-toolbar">
             <div className="writer-location"><span className="eyebrow">Episode {episode.number}</span><b>Scene {String(selected.scene_no).padStart(2,'0')}</b></div>
-            <div className={`save-state ${saveState}`}><i/>{saveState==='saving'?'Saving':saveState==='offline'?'Saved on this device':'Saved'}</div>
+            <div className="writer-toolbar-actions">
+              <div className="writer-view-switch" role="group" aria-label="Writing view">
+                <button type="button" className={viewMode==='edit'?'active':''} aria-pressed={viewMode==='edit'} onClick={()=>chooseView('edit')}>Edit</button>
+                <button type="button" className={viewMode==='page'?'active':''} aria-pressed={viewMode==='page'} onClick={()=>chooseView('page')}>Page</button>
+              </div>
+              <div className={`save-state ${saveState}`}><i/>{saveState==='saving'?'Saving':saveState==='offline'?'Saved on this device':'Saved'}</div>
+            </div>
           </div>
 
-          <section className="writer-paper">
-            <input className="slugline-input" value={draft.slugline || ''} onChange={e=>change('slugline', e.target.value)} aria-label="Scene heading" placeholder="INT. LOCATION — DAY"/>
-            <div className="paper-rule"/>
-            <textarea className="screenplay-editor" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} placeholder="Write the scene…" spellCheck="true"/>
-          </section>
+          {viewMode==='edit'
+            ? <section className="writer-paper">
+                <input className="slugline-input" value={draft.slugline || ''} onChange={e=>change('slugline', e.target.value)} aria-label="Scene heading" placeholder="INT. LOCATION — DAY"/>
+                <div className="paper-rule"/>
+                <textarea className="screenplay-editor" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} placeholder="Write the scene…" spellCheck="true"/>
+              </section>
+            : <ScreenplayPage slugline={draft.slugline || ''} text={draft.screenplay_text || ''}/>}
 
           <button className={`structure-toggle ${structureOpen?'active':''}`} onClick={()=>setStructureOpen(v=>!v)}>
             <span className="structure-toggle-main"><i/><span><b>Scene structure</b><small>{draft.scene_want || draft.pressure || draft.choice ? 'The machinery under the page' : 'Add only what helps you write the next beat'}</small></span></span>
@@ -94,6 +114,23 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
       </main>
     </div>
   );
+}
+
+function ScreenplayPage({slugline, text}) {
+  const blocks = useMemo(()=>parseFountain(text), [text]);
+  const visible = blocks.filter(block=>block.type!=='note');
+
+  return <section className="screenplay-page-frame" aria-label="Typeset screenplay page preview">
+    <div className="screenplay-page">
+      <div className="fountain-line fountain-scene">{slugline || 'INT. LOCATION — DAY'}</div>
+      {visible.length
+        ? visible.map((block,index)=>{
+            if(block.type==='blank') return <div key={index} className="fountain-blank" aria-hidden="true"/>;
+            return <div key={index} className={`fountain-line fountain-${block.type}`}>{block.text}</div>;
+          })
+        : <div className="fountain-empty">The page is waiting for the scene.</div>}
+    </div>
+  </section>;
 }
 
 function StructurePanel({draft, change, characters}) {

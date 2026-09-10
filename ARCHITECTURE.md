@@ -12,18 +12,21 @@ The durable domain model remains:
 
 linked to **Characters**, **Causal Links**, **Bills**, **Notes**, and **Snapshots**.
 
-## V0.5 stack
+## V0.5.7 stack
 
 ### Frontend
-- Next.js 16 App Router
+- Next.js 15.5.24 App Router
 - React 19
 - responsive CSS without a component-framework dependency
+- build-time self-hosted typography via `next/font` (Inter / Newsreader / Courier Prime)
+- CSS split by product surface so design drift stays visible in diffs
 - PWA manifest / mobile-safe viewport
 - local screenplay draft preservation plus debounced API autosave
 
 ### Backend
 - FastAPI
-- SQLite for local-first V0.x
+- SQLite as the local / ephemeral working cache
+- Google Drive `.pressureroom` files as the canonical production store
 - normalized UUID-based schema inherited from V0.1
 - export/import service
 - diagnostic service
@@ -91,7 +94,7 @@ Recommended progression:
 5. keep creative story branches distinct from Git branches
 
 
-## V0.5 visual system
+## V0.5.7 visual system
 
 V0.5 formalizes design as part of product behavior. The application uses:
 
@@ -104,4 +107,4 @@ V0.5 formalizes design as part of product behavior. The application uses:
 - mobile-specific navigation and scene selection
 - a visual causality wall rather than a database-like link list
 
-No external font or design-system CDN is required, reducing local/remote rendering differences.
+`next/font` downloads typography during the build and serves it with the application, so production has deterministic fonts without runtime font-CDN requests.

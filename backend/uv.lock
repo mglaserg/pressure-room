@@ -580,7 +580,7 @@ wheels = [
 
 [[package]]
 name = "pressure-room-api"
-version = "0.5.3"
+version = "0.5.7"
 source = { virtual = "." }
 dependencies = [
     { name = "cryptography" },

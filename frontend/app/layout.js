@@ -1,4 +1,27 @@
+import { Courier_Prime, Inter, Newsreader } from 'next/font/google';
 import './globals.css';
+
+const uiFont = Inter({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-pressure-ui',
+  display: 'swap',
+});
+
+const displayFont = Newsreader({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  style: ['normal', 'italic'],
+  variable: '--font-pressure-display',
+  display: 'swap',
+});
+
+const screenplayFont = Courier_Prime({
+  subsets: ['latin'],
+  weight: ['400', '700'],
+  variable: '--font-pressure-script',
+  display: 'swap',
+});
 
 export const metadata = {
   title: 'Pressure Room',
@@ -14,7 +37,7 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${uiFont.variable} ${displayFont.variable} ${screenplayFont.variable}`}>
       <body>{children}</body>
     </html>
   );

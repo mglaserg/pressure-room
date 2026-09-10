@@ -1,6 +1,6 @@
 [project]
 name = "pressure-room-api"
-version = "0.5.3"
+version = "0.5.7"
 description = "Pressure Room FastAPI backend"
 requires-python = ">=3.11"
 dependencies = [

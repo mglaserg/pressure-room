@@ -1,4 +1,4 @@
-# Pressure Room v0.5
+# Pressure Room v0.5.7
 
 **Stories reveal character under pressure.**
 
@@ -6,14 +6,14 @@ Pressure Room is a local-first screenwriting environment for developing stories 
 
 > **Want → Pressure → Choice → Consequence → Bill → Change**
 
-V0.5 is the major product-design pass: the same story engine now feels like a **premium creative writing workspace rather than a development dashboard**.
+V0.5.7 consolidates the product-design pass: a token-enforced visual system, deterministic self-hosted typography, and an Edit / Page screenplay workflow on top of the same story engine.
 
 ## V0.5 design principles
 
 - **Editorial, not dashboard.** Screenplay and story language get visual priority over controls.
 - **Power underneath, calm on the surface.** Deep structure stays available without crowding the writer.
 - **Aesthetics are functional.** Typography, spacing, motion, and visual hierarchy are part of the writing experience.
-- **No fragile design dependencies.** The visual system uses native font stacks and local CSS—no external font/CDN requirement.
+- **No runtime font dependency.** `next/font` fetches the chosen fonts at build time and serves them with the app; the browser does not depend on a font CDN.
 - **Mobile is intentional.** Navigation, scene selection, structure disclosure, causal mapping, and forms reflow for touch rather than merely shrinking.
 
 ## The workspace
@@ -28,6 +28,8 @@ Pressure Room keeps only four top-level areas:
 ## Highlights
 
 ### Write
+- Edit / Page toggle over the same screenplay source
+- typeset Fountain preview with screenplay spacing and dialogue indentation
 - paper-like screenplay canvas
 - editorial scene rail on desktop / swipeable scene strip on mobile
 - local draft preservation
@@ -121,9 +123,21 @@ The git tag `v0.1.0` remains the clean Streamlit checkpoint.
 
 ## Remote / AWS hosting
 
-The browser uses same-origin `/api` requests and a Next.js Route Handler proxies them internally to FastAPI. Production hosting should use `next build` + `next start`, not `next dev`. See [`DEPLOY_AWS.md`](DEPLOY_AWS.md).
+Production is intentionally split:
 
-The current AWS black-screen investigation is deployment-specific: the same production frontend has been confirmed to render on Windows.
+```text
+Browser
+  → AWS Amplify / Next.js
+  → same-origin /api/* Route Handler proxy
+  → Amazon ECS Express Mode
+  → FastAPI
+  → ephemeral SQLite working cache
+  ↔ Google Drive / Pressure Room/*.pressureroom (canonical)
+```
+
+Amplify receives `PRESSURE_ROOM_API_URL=https://<ecs-application-url>` at build time. ECS listens on port `8000` and uses `/api/health` for its health check. Production keeps one ECS task because Drive + SQLite is currently a single-writer architecture.
+
+See [`DEPLOY_AWS.md`](DEPLOY_AWS.md) for the deployment contract.
 
 ## Sharing with friends
 

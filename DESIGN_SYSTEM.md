@@ -18,11 +18,19 @@ The interface should help a writer stay with the story longer. Calmness, hierarc
 
 ## Typography
 
-Use local/system stacks so the application looks intentional without depending on external font delivery.
+Typography is deterministic across platforms and has no runtime font-CDN dependency. Next.js `next/font` downloads the files during the build and serves them with the application.
 
-- UI: modern system sans-serif
-- Story hierarchy: Iowan Old Style / Palatino / Georgia stack
-- Screenplay: Courier Prime / Courier New stack
+- UI: **Inter**
+- Story hierarchy: **Newsreader**
+- Screenplay: **Courier Prime**
+- UI sizing uses the seven-step token scale; meaningful interface text does not drop below `--type-xs` (`0.75rem`).
+- Font weights use real 400 / 500 / 600 / 700 / 800 steps instead of synthetic in-between values.
+
+## Token discipline
+
+Components consume semantic surface, text, status, radius, and type tokens. New one-off hex colors, font sizes, and radii should be treated as design-system exceptions that need an explicit reason.
+
+The screenplay is the intentional exception: Page mode follows screenplay conventions rather than the general UI type scale.
 
 ## Interaction hierarchy
 

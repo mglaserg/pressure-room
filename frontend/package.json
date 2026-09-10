@@ -1,11 +1,12 @@
 {
   "name": "pressure-room-web",
-  "version": "0.5.1",
+  "version": "0.5.7",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0"
+    "start": "next start --hostname 0.0.0.0",
+    "test:fountain": "node --test lib/fountain.test.mjs"
   },
   "dependencies": {
     "next": "15.5.24",

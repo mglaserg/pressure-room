@@ -1,58 +1,95 @@
-# Pressure Room on AWS — v0.4.4
+# Pressure Room on AWS — v0.5.7
 
-Pressure Room now uses a Next.js **Route Handler proxy** for every browser `/api/*` request.
-The browser only talks to the Next.js origin. Next.js talks to FastAPI on the server.
+Pressure Room uses **Amplify for the Next.js frontend** and **Amazon ECS Express Mode for the FastAPI backend**. Google Drive is the canonical production story store; SQLite inside the container is a disposable working cache.
 
-## Expected topology
-
-Browser -> Next.js :3000 -> Route Handler `/api/*` -> FastAPI 127.0.0.1:8000
-
-Only port 3000 needs to be externally reachable when using the simple direct deployment.
-Port 8000 should remain private.
-
-## Three decisive checks
-
-Run these **on the AWS machine** after starting Pressure Room:
-
-```bash
-curl --max-time 5 -i http://127.0.0.1:8000/api/health
-curl --max-time 5 -i http://127.0.0.1:8000/api/projects
-curl --max-time 8 -i http://127.0.0.1:3000/api/health
-```
-
-All three should return HTTP 200.
-
-Then from your own computer/browser open:
+## Production topology
 
 ```text
-http://YOUR_SERVER:3000/api/health
+Browser
+  ↓
+AWS Amplify / Next.js
+  ↓ same-origin /api/*
+Next.js Route Handler proxy
+  ↓ PRESSURE_ROOM_API_URL
+Amazon ECS Express Mode
+  ↓
+FastAPI :8000
+  ↓
+ephemeral SQLite cache
+  ↕
+Google Drive / Pressure Room/*.pressureroom
 ```
 
-If that returns JSON, the browser-to-Next-to-FastAPI path works.
+The browser never needs to call ECS directly, so normal app traffic remains same-origin.
 
-## If the app shows “Opening the room…”
+## Amplify
 
-v0.4.4 runs the Linux/AWS launcher in production mode (`next build` + `next start`) so remote browsers are not subject to Next.js development-origin blocking. The explicit `/api` proxy and request timeouts remain in place.
+Set this environment variable on the `main` branch:
 
-## Running on a server
-
-For a quick direct deployment:
-
-```bash
-chmod +x run.sh
-./run.sh
+```text
+PRESSURE_ROOM_API_URL=https://<ecs-application-url>
 ```
 
-For a durable deployment, put Next.js behind nginx/Caddy on 80/443 and run both Next.js and FastAPI under systemd or another process supervisor.
+`amplify.yml` writes it into `.env.production` during the Next.js build.
 
-## Development mode over NetBird / another remote origin
+After deployment, verify the complete proxy path:
 
-AWS should normally use `./run.sh`, which runs a production Next.js server.
-
-If you intentionally want hot reload, use `./run-dev.sh`. Next.js protects development assets from unexpected origins, so provide the hostname/IP you use in the browser:
-
-```bash
-PRESSURE_ROOM_ALLOWED_DEV_ORIGINS=100.69.49.155 ./run-dev.sh
+```powershell
+curl.exe https://main.d23277cgmbx1g0.amplifyapp.com/api/health
 ```
 
-For more than one trusted dev origin, use a comma-separated list. This setting is only for `next dev`; production mode does not require it.
+## ECS Express Mode
+
+Backend contract:
+
+```text
+container port:    8000
+health check path: /api/health
+minimum tasks:     1
+maximum tasks:     1
+```
+
+The single-task cap is deliberate for the current Drive + SQLite single-writer model.
+
+Direct backend check:
+
+```powershell
+curl.exe https://<ecs-application-url>/api/health
+```
+
+## Google Drive configuration
+
+Ordinary ECS environment variables:
+
+```text
+GOOGLE_CLIENT_ID
+PRESSURE_ROOM_PUBLIC_URL=https://main.d23277cgmbx1g0.amplifyapp.com
+PRESSURE_ROOM_ALLOWED_EMAIL=<your Google account>
+```
+
+Secrets Manager values injected into the task:
+
+```text
+GOOGLE_CLIENT_SECRET
+PRESSURE_ROOM_SESSION_KEY
+```
+
+The ECS task execution role must be able to call `secretsmanager:GetSecretValue` for those secret ARNs. If a customer-managed KMS key protects them, add the corresponding `kms:Decrypt` permission.
+
+OAuth callback:
+
+```text
+https://main.d23277cgmbx1g0.amplifyapp.com/api/google/callback
+```
+
+## Deployment automation
+
+`.github/workflows/deploy-backend-ecs-express.yml` builds the backend image, pushes it to ECR, and updates the ECS Express service when backend files change on `main`.
+
+The frontend continues to deploy through Amplify.
+
+## Persistence rule
+
+Do not treat the ECS container filesystem as durable storage. A replacement task can start with an empty local SQLite cache. Once Drive is configured, Pressure Room hydrates that cache from the user's Drive files and writes project changes back to Drive.
+
+If multi-writer collaboration is added later, move canonical live state to PostgreSQL or another concurrency-safe store; keep Drive as export / backup / sharing.
