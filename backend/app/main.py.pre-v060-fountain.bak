@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from . import db, drive_store, fountain_link
+from . import db, drive_store
 from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions
 from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes
 
@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.5.8", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -39,9 +39,6 @@ class NamePayload(BaseModel):
 
 class SnapshotPayload(BaseModel):
     label: str = "Snapshot"
-
-class FountainOpenPayload(BaseModel):
-    file_id: str
 
 
 PATCH_FIELDS = {
@@ -65,17 +62,14 @@ def _prepare(request: Request) -> dict | None:
 
 def _save(session: dict | None, project_id: str | None) -> None:
     if session and project_id:
-        # Save the rich Pressure Room sidecar first so story work is never lost.
         drive_store.save_project(session, project_id)
-        # Only screenplay-affecting changes rewrite a linked Fountain file.
-        fountain_link.sync_to_fountain(session, project_id)
 
 
 @app.get("/api/health")
 def health():
     return {
         "ok": True,
-        "version": "0.6.0",
+        "version": "0.5.8",
         "storage": drive_store.storage_mode(),
         "cache": db.database_backend(),
     }
@@ -117,21 +111,6 @@ def google_disconnect():
 def google_sync(request: Request):
     session = drive_store.require_session(request)
     return {"ok": True, **drive_store.sync_all_from_drive(session)}
-
-
-
-
-@app.get("/api/google/picker")
-def google_picker(request: Request):
-    session = drive_store.require_session(request)
-    return drive_store.picker_bootstrap(session)
-
-
-@app.post("/api/google/fountain/open")
-def google_fountain_open(payload: FountainOpenPayload, request: Request):
-    session = drive_store.require_session(request)
-    drive_store.ensure_local(session)
-    return fountain_link.open_from_drive(session, payload.file_id)
 
 
 @app.get("/api/projects")

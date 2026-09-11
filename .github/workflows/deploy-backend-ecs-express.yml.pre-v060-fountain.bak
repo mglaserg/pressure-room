@@ -114,14 +114,6 @@ jobs:
               {
                 "name": "PRESSURE_ROOM_PUBLIC_URL",
                 "value": "${{ vars.PRESSURE_ROOM_PUBLIC_URL }}"
-              },
-              {
-                "name": "GOOGLE_PICKER_API_KEY",
-                "value": "${{ vars.GOOGLE_PICKER_API_KEY }}"
-              },
-              {
-                "name": "GOOGLE_CLOUD_PROJECT_NUMBER",
-                "value": "${{ vars.GOOGLE_CLOUD_PROJECT_NUMBER }}"
               }
             ]
 

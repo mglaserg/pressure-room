@@ -19,8 +19,6 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 SESSION_KEY = os.getenv("PRESSURE_ROOM_SESSION_KEY", "").strip()
 PUBLIC_URL = os.getenv("PRESSURE_ROOM_PUBLIC_URL", "").strip().rstrip("/")
-GOOGLE_PICKER_API_KEY = os.getenv("GOOGLE_PICKER_API_KEY", "").strip()
-GOOGLE_CLOUD_PROJECT_NUMBER = os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
 
 COOKIE_NAME = "pressure_room_google"
 STATE_COOKIE = "pressure_room_google_state"
@@ -139,7 +137,6 @@ def status(request: Request) -> dict:
         "configured": error is None,
         "connected": bool(session),
         "storage": "google-drive",
-        "picker_configured": bool(GOOGLE_PICKER_API_KEY and GOOGLE_CLOUD_PROJECT_NUMBER),
         "email": session.get("email") if session else None,
         "error": error,
     }
@@ -273,59 +270,6 @@ def access_token(session: dict) -> str:
     return token
 
 
-
-def picker_bootstrap(session: dict) -> dict:
-    if not GOOGLE_PICKER_API_KEY or not GOOGLE_CLOUD_PROJECT_NUMBER:
-        raise HTTPException(
-            503,
-            "Google Picker is not configured. Set GOOGLE_PICKER_API_KEY and GOOGLE_CLOUD_PROJECT_NUMBER.",
-        )
-    return {
-        "access_token": access_token(session),
-        "api_key": GOOGLE_PICKER_API_KEY,
-        "app_id": GOOGLE_CLOUD_PROJECT_NUMBER,
-    }
-
-
-def file_metadata(session: dict, file_id: str) -> dict:
-    return _request(
-        session,
-        "GET",
-        f"{DRIVE_FILES_URL}/{file_id}",
-        params={
-            "fields": "id,name,mimeType,parents,modifiedTime,capabilities(canEdit)",
-            "supportsAllDrives": "true",
-        },
-    ).json()
-
-
-def download_text(session: dict, file_id: str) -> str:
-    raw = _request(
-        session,
-        "GET",
-        f"{DRIVE_FILES_URL}/{file_id}",
-        params={"alt": "media", "supportsAllDrives": "true"},
-    ).content
-    try:
-        return raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return raw.decode("utf-8", errors="replace")
-
-
-def upload_text(session: dict, file_id: str, text: str) -> None:
-    meta = file_metadata(session, file_id)
-    can_edit = (meta.get("capabilities") or {}).get("canEdit")
-    if can_edit is False:
-        raise HTTPException(403, "The selected Fountain file is read-only.")
-    _request(
-        session,
-        "PATCH",
-        f"{DRIVE_UPLOAD_URL}/{file_id}",
-        params={"uploadType": "media", "supportsAllDrives": "true"},
-        headers={"Content-Type": "text/plain; charset=utf-8"},
-        content=text.encode("utf-8"),
-    )
-
 def _request(session: dict, method: str, url: str, **kwargs) -> httpx.Response:
     token = access_token(session)
     headers = dict(kwargs.pop("headers", {}))
@@ -378,10 +322,10 @@ def _folder_id(session: dict) -> str:
 
 
 def _project_files(session: dict, folder_id: str | None = None) -> list[dict]:
-    # Search all app-authorized Drive files so Fountain sidecars can live beside
-    # their source screenplay instead of being forced into the Pressure Room folder.
-    query = "appProperties has { key='pressure_room_kind' and value='project' } and trashed=false"
-    return _list_files(session, query, "id,name,modifiedTime,appProperties,parents")
+    folder_id = folder_id or _folder_id(session)
+    files = _list_files(session, f"'{folder_id}' in parents and trashed=false", "id,name,modifiedTime,appProperties")
+    return [item for item in files if (item.get("appProperties") or {}).get("pressure_room_kind") == "project"]
+
 
 def _safe_filename(title: str) -> str:
     cleaned = "".join("_" if c in '<>:"/\\|?*' else c for c in title).strip().rstrip(".")
@@ -409,92 +353,28 @@ def save_project(session: dict, project_id: str) -> dict:
     with SYNC_LOCK:
         payload = db.project_payload(project_id, include_snapshots=True)
         raw = package_bytes(payload)
-        source = db.get_project_source(project_id)
-        files = _project_files(session)
-
-        sidecar_id = source.get("sidecar_file_id") if source else None
-        current = None
-        if sidecar_id:
-            current = next((item for item in files if item.get("id") == sidecar_id), None)
-        if not current:
-            current = next(
-                (
-                    item
-                    for item in files
-                    if (item.get("appProperties") or {}).get("pressure_room_project_id") == project_id
-                ),
-                None,
-            )
-
-        filename = (
-            source.get("sidecar_file_name")
-            if source and source.get("sidecar_file_name")
-            else _safe_filename(payload["project"]["title"])
-        )
+        folder_id = _folder_id(session)
+        files = _project_files(session, folder_id)
+        current = next((item for item in files if (item.get("appProperties") or {}).get("pressure_room_project_id") == project_id), None)
         metadata = {
-            "name": filename,
+            "name": _safe_filename(payload["project"]["title"]),
             "appProperties": {
                 "pressure_room_kind": "project",
                 "pressure_room_project_id": project_id,
                 "pressure_room_format_version": "2",
-                "pressure_room_source_kind": (source or {}).get("source_kind", ""),
             },
         }
-
-        file_id = current.get("id") if current else None
-        if file_id:
-            try:
-                _request(
-                    session,
-                    "PATCH",
-                    f"{DRIVE_FILES_URL}/{file_id}",
-                    params={"fields": "id,name,modifiedTime,appProperties,parents"},
-                    json=metadata,
-                )
-            except HTTPException:
-                file_id = None
-
-        if not file_id:
-            preferred_parent = (source or {}).get("drive_parent_id")
-            parent_id = preferred_parent or _folder_id(session)
-            create_metadata = dict(metadata)
-            create_metadata["parents"] = [parent_id]
-            try:
-                created = _request(
-                    session,
-                    "POST",
-                    DRIVE_FILES_URL,
-                    params={"fields": "id,name,modifiedTime,appProperties,parents"},
-                    json=create_metadata,
-                ).json()
-            except HTTPException:
-                if not preferred_parent:
-                    raise
-                # A selected file can be authorized without its parent folder being
-                # writable by the app. Fall back to Pressure Room/ rather than fail.
-                fallback = dict(metadata)
-                fallback["parents"] = [_folder_id(session)]
-                created = _request(
-                    session,
-                    "POST",
-                    DRIVE_FILES_URL,
-                    params={"fields": "id,name,modifiedTime,appProperties,parents"},
-                    json=fallback,
-                ).json()
+        if current:
+            file_id = current["id"]
+            _request(session, "PATCH", f"{DRIVE_FILES_URL}/{file_id}", params={"fields": "id,name,modifiedTime,appProperties"}, json=metadata)
+        else:
+            metadata["parents"] = [folder_id]
+            created = _request(session, "POST", DRIVE_FILES_URL, params={"fields": "id,name,modifiedTime,appProperties"}, json=metadata).json()
             file_id = created["id"]
-
         _upload_media(session, file_id, raw)
-
-        if source:
-            db.upsert_project_source(
-                project_id,
-                sidecar_file_id=file_id,
-                sidecar_file_name=filename,
-                updated_at=db.now_iso(),
-            )
-
         LAST_SYNC_AT[sub] = time.monotonic()
-        return {"file_id": file_id, "name": filename}
+        return {"file_id": file_id, "name": metadata["name"]}
+
 
 def sync_all_from_drive(session: dict) -> dict:
     sub = _bind_user_cache(session)

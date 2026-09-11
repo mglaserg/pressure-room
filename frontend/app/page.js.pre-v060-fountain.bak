@@ -7,7 +7,6 @@ import DiagnoseView from '@/components/DiagnoseView';
 import HelpView from '@/components/HelpView';
 import ShareSheet from '@/components/ShareSheet';
 import Modal from '@/components/Modal';
-import GoogleFountainPicker from '@/components/GoogleFountainPicker';
 
 const NAV = [
   ['write','Write','The page'],
@@ -120,7 +119,6 @@ export default function Home(){
   function chooseDriveMode(){
     setStorageMode('drive');
     setStorageModeState('drive');
-    if(drive?.connected){window.location.reload();return;}
     window.location.href='/api/google/connect';
   }
 
@@ -177,9 +175,8 @@ export default function Home(){
       </div>
       <div className="boot-actions">
         <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
-        {drive?.picker_configured&&<GoogleFountainPicker onOpened={async result=>await loadProjects(result.project_id)}/>}
         <input ref={driveImport} type="file" accept=".pressureroom,.zip" hidden onChange={e=>importFirstDriveProject(e.target.files?.[0])}/>
-        <button className="button secondary" disabled={driveImportBusy} onClick={()=>driveImport.current?.click()}>{driveImportBusy?'Importing…':'Import Pressure Room project'}</button>
+        <button className="button secondary" disabled={driveImportBusy} onClick={()=>driveImport.current?.click()}>{driveImportBusy?'Importing…':'Import project'}</button>
       </div>
     </main>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
@@ -221,8 +218,6 @@ export default function Home(){
 
       <div className="top-actions">
         {storageMode==='drive'&&drive?.connected&&<a className="quiet-action" href="/api/google/disconnect" title={drive.email||'Google Drive'}>Drive ✓</a>}
-        {storageMode==='drive'&&workspace?.project_source?.source_kind==='fountain'&&<span className="quiet-action" title={workspace.project_source.drive_file_name||'Linked Fountain'}>Fountain ↔</span>}
-        {storageMode==='drive'&&drive?.connected&&drive?.picker_configured&&<GoogleFountainPicker className="quiet-action" label="Open Fountain" onOpened={async result=>await loadProjects(result.project_id)}/>}
         {storageMode==='local'&&<span className="quiet-action" title="Saved in this browser on this device">This device</span>}
         {storageMode==='local'&&drive?.configured&&<button className="quiet-action" onClick={chooseDriveMode}>Use Drive</button>}
         <button className="quiet-action" onClick={()=>setNewStory(true)}>＋ Story</button>

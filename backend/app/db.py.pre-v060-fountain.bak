@@ -174,22 +174,6 @@ CREATE TABLE IF NOT EXISTS snapshots (
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS project_sources (
-    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-    source_kind TEXT NOT NULL,
-    drive_file_id TEXT NOT NULL UNIQUE,
-    drive_file_name TEXT NOT NULL,
-    drive_parent_id TEXT,
-    sidecar_file_id TEXT,
-    sidecar_file_name TEXT,
-    fountain_preamble TEXT DEFAULT '',
-    screenplay_hash TEXT DEFAULT '',
-    source_modified_time TEXT DEFAULT '',
-    linked_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_project_source_drive_file ON project_sources(drive_file_id);
-
 CREATE INDEX IF NOT EXISTS idx_char_project ON characters(project_id);
 CREATE INDEX IF NOT EXISTS idx_ep_project ON episodes(project_id);
 CREATE INDEX IF NOT EXISTS idx_scene_episode ON scenes(episode_id);
@@ -347,46 +331,6 @@ def get_bills(project_id: str) -> list[dict]:
     """, [project_id])
 
 
-
-def get_project_source(project_id: str) -> dict | None:
-    return one("SELECT * FROM project_sources WHERE project_id=?", [project_id])
-
-
-def get_project_source_by_drive_file(drive_file_id: str) -> dict | None:
-    return one("SELECT * FROM project_sources WHERE drive_file_id=?", [drive_file_id])
-
-
-def upsert_project_source(project_id: str, **fields) -> dict:
-    allowed = {
-        "source_kind",
-        "drive_file_id",
-        "drive_file_name",
-        "drive_parent_id",
-        "sidecar_file_id",
-        "sidecar_file_name",
-        "fountain_preamble",
-        "screenplay_hash",
-        "source_modified_time",
-        "linked_at",
-        "updated_at",
-    }
-    data = {k: v for k, v in fields.items() if k in allowed}
-    existing = get_project_source(project_id)
-    if existing:
-        data.setdefault("updated_at", now_iso())
-        update("project_sources", project_id, data)
-        return get_project_source(project_id) or {}
-
-    required = ("source_kind", "drive_file_id", "drive_file_name")
-    missing = [name for name in required if not data.get(name)]
-    if missing:
-        raise ValueError("Missing project source fields: " + ", ".join(missing))
-    data["project_id"] = project_id
-    data.setdefault("linked_at", now_iso())
-    data.setdefault("updated_at", now_iso())
-    insert("project_sources", data)
-    return get_project_source(project_id) or {}
-
 def project_payload(project_id: str, include_snapshots: bool = False) -> dict:
     project = one("SELECT * FROM projects WHERE id=?", [project_id])
     if not project:
@@ -413,7 +357,6 @@ def project_payload(project_id: str, include_snapshots: bool = False) -> dict:
         "causal_links": links,
         "bills": bills,
         "story_notes": notes,
-        "project_source": get_project_source(project_id),
     }
     if include_snapshots:
         payload["snapshots"] = rows(
@@ -523,12 +466,6 @@ def import_payload(payload: dict, mode: str = "copy") -> str:
         data["project_id"] = project_id
         data["object_id"] = mapped(note.get("object_id")) or note.get("object_id", "")
         insert("story_notes", data)
-    if mode == "replace":
-        source = payload.get("project_source")
-        if source:
-            data = {k: v for k, v in source.items() if k != "project_id"}
-            upsert_project_source(project_id, **data)
-
     if mode == "replace":
         for snap in payload.get("snapshots", []):
             data = {k: v for k, v in snap.items() if k != "id"}

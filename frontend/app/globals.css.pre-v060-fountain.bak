@@ -7,8 +7,3 @@
 @import "../styles/chrome.css";
 @import "../styles/responsive.css";
 @import "../styles/legal.css";
-
-
-/* Google Drive Fountain picker */
-.picker-action{display:inline-flex;align-items:center;gap:.45rem;flex-wrap:wrap}
-.picker-action .form-message{font-size:.75rem;max-width:24rem}
