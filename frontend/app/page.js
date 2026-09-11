@@ -1,5 +1,5 @@
 'use client';
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {api, create} from '@/lib/api';
 import WriteView from '@/components/WriteView';
 import StructureView from '@/components/StructureView';
@@ -27,10 +27,14 @@ export default function Home(){
   const [newStory,setNewStory]=useState(false);
   const [error,setError]=useState('');
   const [drive,setDrive]=useState(null);
+  const [projectsReady,setProjectsReady]=useState(false);
+  const emptyImport=useRef(null);
+  const [emptyImportBusy,setEmptyImportBusy]=useState(false);
 
   async function loadProjects(prefer){
     const ps=await api('/projects');
     setProjects(ps);
+    setProjectsReady(true);
     const id=prefer||projectId||ps[0]?.id||'';
     if(id){setProjectId(id);await loadWorkspace(id)} else setWorkspace(null);
   }
@@ -69,6 +73,22 @@ export default function Home(){
   },[branchId]);
 
   async function reload(preferScene){if(projectId)await loadWorkspace(projectId,preferScene)}
+  async function importFirstProject(file){
+    if(!file)return;
+    setEmptyImportBusy(true);
+    try{
+      const body=new FormData();
+      body.append('file',file);
+      const result=await api('/import?mode=replace',{method:'POST',body});
+      await loadProjects(result.project_id);
+    }catch(e){
+      setError(e.message||'Could not import that Pressure Room project.');
+    }finally{
+      setEmptyImportBusy(false);
+      if(emptyImport.current)emptyImport.current.value='';
+    }
+  }
+
   async function createEpisode(){
     if(!project||!branch)return;
     const n=Math.max(0,...branchEpisodes.map(e=>e.number))+1;
@@ -96,6 +116,36 @@ export default function Home(){
       <a className="button secondary" href="/api/health" target="_blank" rel="noreferrer">API health</a>
     </div>
   </main>;
+
+  if(drive?.connected&&projectsReady&&projects.length===0&&!workspace)return <>
+    <main className="boot">
+      <BrandMark large/>
+      <div className="boot-copy">
+        <span className="eyebrow">Your Drive is connected</span>
+        <h1>Your room is empty</h1>
+        <p>Nothing has been written here yet. Start a new story, or bring an existing Pressure Room project into the room.</p>
+        <p className="muted">Your stories will be saved automatically in the Pressure Room folder in your Google Drive{drive.email?` as ${drive.email}`:''}.</p>
+      </div>
+      <div className="boot-actions">
+        <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
+        <input
+          ref={emptyImport}
+          type="file"
+          accept=".pressureroom,.zip"
+          hidden
+          onChange={e=>importFirstProject(e.target.files?.[0])}
+        />
+        <button className="button secondary" disabled={emptyImportBusy} onClick={()=>emptyImport.current?.click()}>
+          {emptyImportBusy?'Importing…':'Import project'}
+        </button>
+      </div>
+    </main>
+    <NewStory
+      open={newStory}
+      onClose={()=>setNewStory(false)}
+      onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}
+    />
+  </>;
 
   if(drive===null||!workspace)return <main className="boot"><BrandMark large/><div className="boot-copy"><span className="eyebrow">Pressure Room</span><h1>Opening the room</h1><p className="muted">{drive?.connected?'Bringing your stories down from Google Drive.':'Bringing your story back onto the wall.'}</p></div><div className="boot-pulse" aria-hidden="true"><i/><i/><i/></div></main>;
 
