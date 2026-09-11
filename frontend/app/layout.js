@@ -38,7 +38,13 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${uiFont.variable} ${displayFont.variable} ${screenplayFont.variable}`}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <footer className="legal-footer" aria-label="Legal">
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+        </footer>
+      </body>
     </html>
   );
 }
