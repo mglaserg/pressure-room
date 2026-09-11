@@ -15,9 +15,9 @@ permissions:
 
 env:
   AWS_REGION: us-east-2
-  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-  ECS_SERVICE: ${{ vars.ECS_SERVICE }}
-  ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+  ECR_REPOSITORY: pressure-room-api
+  ECS_SERVICE: pressure-room-api-c5dc
+  ECS_CLUSTER: default
 
 jobs:
   deploy:
@@ -28,6 +28,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Validate production deployment configuration
+        shell: bash
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          ECS_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
+          ECS_INFRASTRUCTURE_ROLE_ARN: ${{ vars.ECS_INFRASTRUCTURE_ROLE_ARN }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET_ARN: ${{ vars.GOOGLE_CLIENT_SECRET_ARN }}
+          PRESSURE_ROOM_SESSION_KEY_ARN: ${{ vars.PRESSURE_ROOM_SESSION_KEY_ARN }}
+          PRESSURE_ROOM_PUBLIC_URL: ${{ vars.PRESSURE_ROOM_PUBLIC_URL }}
+        run: |
+          required=(
+            AWS_DEPLOY_ROLE_ARN
+            ECS_EXECUTION_ROLE_ARN
+            ECS_INFRASTRUCTURE_ROLE_ARN
+            GOOGLE_CLIENT_ID
+            GOOGLE_CLIENT_SECRET_ARN
+            PRESSURE_ROOM_SESSION_KEY_ARN
+            PRESSURE_ROOM_PUBLIC_URL
+          )
+
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if ((${#missing[@]})); then
+            printf 'Missing production environment variable: %s\n' "${missing[@]}"
+            exit 1
+          fi
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
@@ -81,10 +114,6 @@ jobs:
               {
                 "name": "PRESSURE_ROOM_PUBLIC_URL",
                 "value": "${{ vars.PRESSURE_ROOM_PUBLIC_URL }}"
-              },
-              {
-                "name": "PRESSURE_ROOM_ALLOWED_EMAIL",
-                "value": "${{ vars.PRESSURE_ROOM_ALLOWED_EMAIL }}"
               }
             ]
 

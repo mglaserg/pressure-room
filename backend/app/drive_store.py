@@ -19,7 +19,6 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 SESSION_KEY = os.getenv("PRESSURE_ROOM_SESSION_KEY", "").strip()
 PUBLIC_URL = os.getenv("PRESSURE_ROOM_PUBLIC_URL", "").strip().rstrip("/")
-ALLOWED_EMAIL = os.getenv("PRESSURE_ROOM_ALLOWED_EMAIL", "").strip().lower()
 
 COOKIE_NAME = "pressure_room_google"
 STATE_COOKIE = "pressure_room_google_state"
@@ -35,13 +34,25 @@ DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files"
 
 HTTP_TIMEOUT = 25.0
 SYNC_LOCK = threading.RLock()
-LAST_SYNC_AT = 0.0
-HYDRATED_SUB: str | None = None
+LAST_SYNC_AT: dict[str, float] = {}
 ACCESS_CACHE: dict[str, tuple[str, float]] = {}
 
 
 def enabled() -> bool:
     return bool(GOOGLE_CLIENT_ID)
+
+
+def _session_sub(session: dict) -> str:
+    sub = str(session.get("sub", "")).strip()
+    if not sub:
+        raise HTTPException(401, "Google account identity is missing. Connect Google Drive again.")
+    return sub
+
+
+def _bind_user_cache(session: dict) -> str:
+    sub = _session_sub(session)
+    db.bind_user_cache(sub)
+    return sub
 
 
 def configuration_error() -> str | None:
@@ -112,9 +123,7 @@ def require_session(request: Request) -> dict:
     session = session_from_request(request)
     if not session:
         raise HTTPException(401, "Google Drive is not connected.")
-    email = str(session.get("email", "")).lower()
-    if ALLOWED_EMAIL and email != ALLOWED_EMAIL:
-        raise HTTPException(403, "This Google account is not allowed to use this Pressure Room deployment.")
+    _session_sub(session)
     return session
 
 
@@ -185,12 +194,13 @@ def callback_response(request: Request, code: str, state: str) -> Response:
         raise HTTPException(502, "Could not read the connected Google account.")
     user = user_response.json()
     email = str(user.get("email", "")).lower()
-    if ALLOWED_EMAIL and email != ALLOWED_EMAIL:
-        raise HTTPException(403, f"{email or 'This account'} is not allowed to use this Pressure Room deployment.")
+    sub = str(user.get("sub", "")).strip()
+    if not sub:
+        raise HTTPException(502, "Google did not return a stable account identifier.")
 
     expires_in = int(token_data.get("expires_in", 3600))
     session = {
-        "sub": str(user.get("sub", "")),
+        "sub": sub,
         "email": email,
         "refresh_token": refresh,
         "access_token": access,
@@ -234,7 +244,7 @@ def _refresh_access_token(session: dict) -> tuple[str, float]:
 
 
 def access_token(session: dict) -> str:
-    key = session.get("sub") or session.get("email") or "single-writer"
+    key = _session_sub(session)
     cached = ACCESS_CACHE.get(key)
     if cached and cached[1] > time.time():
         return cached[0]
@@ -254,7 +264,7 @@ def _request(session: dict, method: str, url: str, **kwargs) -> httpx.Response:
     headers["Authorization"] = f"Bearer {token}"
     response = httpx.request(method, url, headers=headers, timeout=HTTP_TIMEOUT, **kwargs)
     if response.status_code == 401:
-        key = session.get("sub") or session.get("email") or "single-writer"
+        key = _session_sub(session)
         ACCESS_CACHE.pop(key, None)
         token, expires = _refresh_access_token(session)
         ACCESS_CACHE[key] = (token, expires)
@@ -327,7 +337,7 @@ def _upload_media(session: dict, file_id: str, raw: bytes) -> None:
 
 
 def save_project(session: dict, project_id: str) -> dict:
-    global LAST_SYNC_AT, HYDRATED_SUB
+    sub = _bind_user_cache(session)
     with SYNC_LOCK:
         payload = db.project_payload(project_id, include_snapshots=True)
         raw = package_bytes(payload)
@@ -350,13 +360,12 @@ def save_project(session: dict, project_id: str) -> dict:
             created = _request(session, "POST", DRIVE_FILES_URL, params={"fields": "id,name,modifiedTime,appProperties"}, json=metadata).json()
             file_id = created["id"]
         _upload_media(session, file_id, raw)
-        LAST_SYNC_AT = time.monotonic()
-        HYDRATED_SUB = session.get("sub")
+        LAST_SYNC_AT[sub] = time.monotonic()
         return {"file_id": file_id, "name": metadata["name"]}
 
 
 def sync_all_from_drive(session: dict) -> dict:
-    global LAST_SYNC_AT, HYDRATED_SUB
+    sub = _bind_user_cache(session)
     with SYNC_LOCK:
         folder_id = _folder_id(session)
         project_files = _project_files(session, folder_id)
@@ -364,8 +373,7 @@ def sync_all_from_drive(session: dict) -> dict:
             local = db.get_projects()
             for project in local:
                 save_project(session, project["id"])
-            LAST_SYNC_AT = time.monotonic()
-            HYDRATED_SUB = session.get("sub")
+            LAST_SYNC_AT[sub] = time.monotonic()
             return {"pulled": 0, "pushed": len(local)}
 
         packages = [_download_project(session, item["id"]) for item in project_files]
@@ -374,12 +382,13 @@ def sync_all_from_drive(session: dict) -> dict:
         db.clear_projects()
         for payload in packages:
             db.import_payload(payload, mode="replace")
-        LAST_SYNC_AT = time.monotonic()
-        HYDRATED_SUB = session.get("sub")
+        LAST_SYNC_AT[sub] = time.monotonic()
         return {"pulled": len(packages), "pushed": 0}
 
 
 def ensure_local(session: dict, max_age_seconds: float = 15.0) -> None:
-    if HYDRATED_SUB == session.get("sub") and (time.monotonic() - LAST_SYNC_AT) < max_age_seconds:
+    sub = _bind_user_cache(session)
+    last_sync = LAST_SYNC_AT.get(sub, 0.0)
+    if last_sync and (time.monotonic() - last_sync) < max_age_seconds:
         return
     sync_all_from_drive(session)

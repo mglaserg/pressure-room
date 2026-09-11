@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.5.7", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.5.8", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -69,7 +69,7 @@ def _save(session: dict | None, project_id: str | None) -> None:
 def health():
     return {
         "ok": True,
-        "version": "0.5.7",
+        "version": "0.5.8",
         "storage": drive_store.storage_mode(),
         "cache": db.database_backend(),
     }

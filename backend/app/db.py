@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -11,6 +13,31 @@ from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.getenv("PRESSURE_ROOM_DB", ROOT / "data" / "pressure_room.db"))
+_ACTIVE_DB_PATH: ContextVar[Path | None] = ContextVar(
+    "pressure_room_active_db_path", default=None
+)
+
+
+def current_db_path() -> Path:
+    return _ACTIVE_DB_PATH.get() or DB_PATH
+
+
+def bind_default_cache() -> None:
+    _ACTIVE_DB_PATH.set(None)
+
+
+def bind_user_cache(user_sub: str) -> Path:
+    user_sub = str(user_sub or "").strip()
+    if not user_sub:
+        raise ValueError("Google user sub is required for an isolated cache.")
+    digest = hashlib.sha256(user_sub.encode("utf-8")).hexdigest()[:32]
+    root = Path(
+        os.getenv("PRESSURE_ROOM_USER_CACHE_DIR", str(DB_PATH.parent / "users"))
+    )
+    path = root / f"{digest}.db"
+    _ACTIVE_DB_PATH.set(path)
+    init_db(seed=False)
+    return path
 
 
 class SQLiteConnection(sqlite3.Connection):
@@ -32,8 +59,9 @@ def uid() -> str:
 
 
 def connect():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB_PATH, factory=SQLiteConnection)
+    path = current_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path, factory=SQLiteConnection)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     return con

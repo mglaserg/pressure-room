@@ -139,3 +139,50 @@ def test_canonical_drive_payload_carries_snapshot_history_without_recursion():
         assert canonical["snapshots"]
         nested = json.loads(canonical["snapshots"][0]["payload_json"])
         assert "snapshots" not in nested
+
+def test_google_user_caches_are_isolated(tmp_path, monkeypatch):
+    """Two Google users must never share the same ephemeral SQLite cache."""
+    monkeypatch.setenv(
+        "PRESSURE_ROOM_USER_CACHE_DIR",
+        str(tmp_path / "user-cache"),
+    )
+
+    try:
+        path_a = db.bind_user_cache("google-sub-user-a")
+        db.clear_projects()
+
+        ts = db.now_iso()
+        project_a = db.insert(
+            "projects",
+            {
+                "title": "User A Story",
+                "premise": "",
+                "theme": "",
+                "created_at": ts,
+                "updated_at": ts,
+            },
+        )
+
+        path_b = db.bind_user_cache("google-sub-user-b")
+        assert path_b != path_a
+        assert db.get_projects() == []
+
+        ts = db.now_iso()
+        db.insert(
+            "projects",
+            {
+                "title": "User B Story",
+                "premise": "",
+                "theme": "",
+                "created_at": ts,
+                "updated_at": ts,
+            },
+        )
+        assert [p["title"] for p in db.get_projects()] == ["User B Story"]
+
+        db.bind_user_cache("google-sub-user-a")
+        projects_a = db.get_projects()
+        assert [p["id"] for p in projects_a] == [project_a]
+        assert [p["title"] for p in projects_a] == ["User A Story"]
+    finally:
+        db.bind_default_cache()
