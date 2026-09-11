@@ -182,7 +182,19 @@ def callback_response(request: Request, code: str, state: str) -> Response:
         timeout=HTTP_TIMEOUT,
     )
     if token_response.status_code >= 400:
-        raise HTTPException(502, "Google did not accept the OAuth code.")
+        try:
+            error_payload = token_response.json()
+        except Exception:
+            error_payload = {}
+
+        google_error = str(error_payload.get("error", "unknown_error"))
+        google_description = str(
+            error_payload.get("error_description", "No description returned by Google.")
+        )
+        raise HTTPException(
+            502,
+            f"Google OAuth token exchange failed: {google_error}: {google_description}",
+        )
     token_data = token_response.json()
     access = token_data.get("access_token")
     refresh = token_data.get("refresh_token")
