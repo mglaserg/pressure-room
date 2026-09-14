@@ -6,6 +6,7 @@ import os
 import sqlite3
 import uuid
 from contextvars import ContextVar
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -58,13 +59,37 @@ def uid() -> str:
     return str(uuid.uuid4())
 
 
+_TRANSACTION: ContextVar[sqlite3.Connection | None] = ContextVar("pressure_room_transaction", default=None)
+
+
+@contextmanager
 def connect():
+    active = _TRANSACTION.get()
+    if active is not None:
+        yield active
+        return
     path = current_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path, factory=SQLiteConnection)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
-    return con
+    with con:
+        yield con
+
+
+@contextmanager
+def transaction():
+    """Reuse one connection so a failed multi-row change rolls back entirely."""
+    if _TRANSACTION.get() is not None:
+        yield
+        return
+    with connect() as con:
+        con.execute("BEGIN IMMEDIATE")
+        token = _TRANSACTION.set(con)
+        try:
+            yield
+        finally:
+            _TRANSACTION.reset(token)
 
 
 SCHEMA = """
@@ -216,7 +241,6 @@ def init_db(seed: bool = True) -> None:
         con.executescript(SCHEMA)
         if not _has_column(con, "scenes", "screenplay_text"):
             con.execute("ALTER TABLE scenes ADD COLUMN screenplay_text TEXT DEFAULT ''")
-        con.commit()
     if seed:
         ensure_demo()
 
@@ -235,12 +259,53 @@ def one(sql: str, params: Iterable[Any] = ()) -> dict | None:
 def execute(sql: str, params: Iterable[Any] = ()) -> None:
     with connect() as con:
         con.execute(sql, tuple(params))
-        con.commit()
+
+
+def _validate_columns(table: str, data: dict) -> None:
+    tables = {"projects", "branches", "characters", "episodes", "scenes", "causal_links", "bills", "story_notes", "snapshots", "project_sources"}
+    if table not in tables:
+        raise ValueError("Unsupported table")
+    with connect() as con:
+        allowed = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+    if set(data) - allowed:
+        raise ValueError(f"Unsupported fields in {table}")
+
+
+def _validate_relationships(table: str, data: dict) -> None:
+    """Keep references within their story and causal links within their episode."""
+    if table == "episodes":
+        refs = [("branches", data.get("branch_id"))]
+        project_id = data.get("project_id")
+    elif table in {"scenes", "causal_links"}:
+        ep = one("SELECT project_id FROM episodes WHERE id=?", [data.get("episode_id")])
+        if not ep:
+            raise ValueError("Episode not found")
+        project_id = ep["project_id"]
+        refs = [("characters", data.get("pov_character_id"))] if table == "scenes" else []
+        if table == "causal_links":
+            if data.get("from_scene_id") == data.get("to_scene_id"):
+                raise ValueError("A scene cannot cause itself")
+            for field in ("from_scene_id", "to_scene_id"):
+                scene = one("SELECT episode_id FROM scenes WHERE id=?", [data.get(field)])
+                if not scene or scene["episode_id"] != data["episode_id"]:
+                    raise ValueError("Both scenes must belong to the selected episode")
+    elif table == "bills":
+        project_id = data.get("project_id")
+        refs = [("episodes", data.get("episode_id")), ("characters", data.get("character_id")),
+                ("scenes", data.get("scene_id")), ("scenes", data.get("payoff_scene_id"))]
+    else:
+        return
+    for ref_table, ref_id in refs:
+        if ref_id and project_id_for_object(ref_table, ref_id) != project_id:
+            raise ValueError("Referenced record must belong to the same story")
 
 
 def insert(table: str, payload: dict) -> str:
     data = dict(payload)
-    data.setdefault("id", uid())
+    if table != "project_sources":
+        data.setdefault("id", uid())
+    _validate_columns(table, data)
+    _validate_relationships(table, data)
     keys = list(data)
     placeholders = ",".join("?" for _ in keys)
     with connect() as con:
@@ -248,12 +313,16 @@ def insert(table: str, payload: dict) -> str:
             f"INSERT INTO {table} ({','.join(keys)}) VALUES ({placeholders})",
             tuple(data[k] for k in keys),
         )
-        con.commit()
-    return data["id"]
+    return data.get("id", data.get("project_id"))
 
 
 def update(table: str, object_id: str, payload: dict) -> None:
+    _validate_columns(table, payload)
     data = dict(payload)
+    existing = one(f"SELECT * FROM {table} WHERE id=?", [object_id])
+    if not existing:
+        raise KeyError(object_id)
+    _validate_relationships(table, {**existing, **data})
     if not data:
         return
     if table in {"projects", "characters", "episodes", "scenes", "bills"}:
@@ -268,6 +337,7 @@ def update(table: str, object_id: str, payload: dict) -> None:
 
 
 def delete(table: str, object_id: str) -> None:
+    _validate_columns(table, {})
     execute(f"DELETE FROM {table} WHERE id=?", [object_id])
 
 
@@ -447,17 +517,29 @@ def restore_snapshot(snapshot_id: str) -> str:
     if not snap:
         raise KeyError(snapshot_id)
     payload = json.loads(snap["payload_json"])
+    if payload.get("project", {}).get("id") != snap["project_id"]:
+        raise ValueError("Snapshot belongs to a different story")
+    # History is story content, not authorization to write a linked Drive file.
+    payload["project_source"] = get_project_source(snap["project_id"])
     return import_payload(payload, mode="replace")
 
 
 def import_payload(payload: dict, mode: str = "copy") -> str:
+    with transaction():
+        return _import_payload(payload, mode)
+
+
+def _import_payload(payload: dict, mode: str = "copy") -> str:
     if payload.get("format") != "pressure-room":
         raise ValueError("Not a Pressure Room project package")
     src = payload["project"]
     if mode not in {"copy", "replace"}:
         raise ValueError("mode must be copy or replace")
+    retained_snapshots = []
     if mode == "replace":
         project_id = src["id"]
+        if "snapshots" not in payload:
+            retained_snapshots = rows("SELECT * FROM snapshots WHERE project_id=?", [project_id])
         if one("SELECT id FROM projects WHERE id=?", [project_id]):
             delete("projects", project_id)
         mapping = {project_id: project_id}
@@ -530,7 +612,7 @@ def import_payload(payload: dict, mode: str = "copy") -> str:
             upsert_project_source(project_id, **data)
 
     if mode == "replace":
-        for snap in payload.get("snapshots", []):
+        for snap in payload.get("snapshots", retained_snapshots):
             data = {k: v for k, v in snap.items() if k != "id"}
             data["id"] = snap["id"]
             data["project_id"] = project_id

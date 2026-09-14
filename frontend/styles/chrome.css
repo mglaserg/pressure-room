@@ -22,3 +22,11 @@
   outline-offset:4px;
   box-shadow:none;
 }
+
+/* Native modal supplies focus containment, Escape and background inertness. */
+.modal-dialog{color:var(--text-primary);margin:auto;max-height:calc(100dvh - 2rem);overflow:auto}
+.modal-dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(8px)}
+.modal-dialog:not([open]){display:none}
+:where(button,a,summary):focus-visible{outline:2px solid var(--accent-strong);outline-offset:4px}
+.save-state.uncached{color:var(--danger)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

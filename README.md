@@ -1,4 +1,6 @@
-# Pressure Room v0.5.7
+# Pressure Room v0.6.1
+
+Security and reliability cleanup (2026-09-14): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local and Google Drive modes; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
 
 **Stories reveal character under pressure.**
 

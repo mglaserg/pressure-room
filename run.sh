@@ -11,7 +11,7 @@ trap cleanup EXIT INT TERM
 echo "Starting Pressure Room API (production)..."
 (
   cd "$ROOT/backend"
-  uv sync
+  uv sync --locked
   uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ) &
 
@@ -20,7 +20,7 @@ API_PID=$!
 echo "Building Pressure Room web app..."
 (
   cd "$ROOT/frontend"
-  npm install
+  npm ci
   npm run build
   npm run start
 ) &

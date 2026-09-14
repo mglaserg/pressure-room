@@ -1,9 +1,0 @@
-@import "../styles/foundation.css";
-@import "../styles/shell.css";
-@import "../styles/write.css";
-@import "../styles/structure.css";
-@import "../styles/diagnose.css";
-@import "../styles/help.css";
-@import "../styles/chrome.css";
-@import "../styles/responsive.css";
-@import "../styles/legal.css";

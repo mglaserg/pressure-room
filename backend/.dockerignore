@@ -1,8 +1,11 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-tests/
+.venv
+__pycache__
+.pytest_cache
+.env
+.env.*
 *.db
+*.db-*
+*.bak
+tests
+*.py[cod]
 *.sqlite*
-.env*

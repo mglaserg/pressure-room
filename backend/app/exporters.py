@@ -64,10 +64,31 @@ def package_bytes(payload: dict) -> bytes:
     return buf.getvalue()
 
 
+MAX_PACKAGE_BYTES = 10 * 1024 * 1024
+MAX_PROJECT_BYTES = 32 * 1024 * 1024
+
+
 def read_package(raw: bytes) -> dict:
+    if len(raw) > MAX_PACKAGE_BYTES:
+        raise ValueError("Project package exceeds the 10 MiB limit")
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-        with zf.open("project.json") as f:
-            return json.load(f)
+        entries = zf.infolist()
+        matches = [info for info in entries if info.filename == "project.json"]
+        if len(entries) > 32 or len(matches) != 1:
+            raise ValueError("Package must contain exactly one project.json")
+        info = matches[0]
+        if info.file_size > MAX_PROJECT_BYTES or info.flag_bits & 1:
+            raise ValueError("Project data is oversized or encrypted")
+        with zf.open(info) as f:
+            data = f.read(MAX_PROJECT_BYTES + 1)
+        if len(data) > MAX_PROJECT_BYTES:
+            raise ValueError("Project data exceeds the 32 MiB limit")
+        payload = json.loads(data)
+        if not isinstance(payload, dict) or payload.get("format") != "pressure-room":
+            raise ValueError("Not a Pressure Room project package")
+        if not isinstance(payload.get("project"), dict):
+            raise ValueError("Missing project record")
+        return payload
 
 
 def pdf_bytes(payload: dict) -> bytes:

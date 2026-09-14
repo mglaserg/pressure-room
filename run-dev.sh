@@ -18,13 +18,13 @@ MSG
 
 (
   cd "$ROOT/backend"
-  uv sync
+  uv sync --locked
   uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ) &
 
 (
   cd "$ROOT/frontend"
-  npm install
+  npm ci
   npm run dev
 ) &
 
