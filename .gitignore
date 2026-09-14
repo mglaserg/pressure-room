@@ -19,3 +19,13 @@ frontend/.env.local
 .DS_Store
 .vscode/
 .idea/
+
+# Credentials, caches and editor backups (including nested user databases)
+.env
+.env.*
+!.env.example
+!.env.local.example
+*.db
+*.db-shm
+*.db-wal
+*.bak

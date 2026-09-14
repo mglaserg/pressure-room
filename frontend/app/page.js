@@ -220,7 +220,7 @@ export default function Home(){
       </div>
 
       <div className="top-actions">
-        {storageMode==='drive'&&drive?.connected&&<a className="quiet-action" href="/api/google/disconnect" title={drive.email||'Google Drive'}>Drive ✓</a>}
+        {storageMode==='drive'&&drive?.connected&&<form action="/api/google/disconnect" method="post"><button className="quiet-action" title={drive.email||'Google Drive'}>Disconnect Drive</button></form>}
         {storageMode==='drive'&&workspace?.project_source?.source_kind==='fountain'&&<span className="quiet-action" title={workspace.project_source.drive_file_name||'Linked Fountain'}>Fountain ↔</span>}
         {storageMode==='drive'&&drive?.connected&&drive?.picker_configured&&<GoogleFountainPicker className="quiet-action" label="Open Fountain" onOpened={async result=>await loadProjects(result.project_id)}/>}
         {storageMode==='local'&&<span className="quiet-action" title="Saved in this browser on this device">This device</span>}
@@ -231,11 +231,11 @@ export default function Home(){
     </header>
 
     <nav className="primary-nav" aria-label="Primary workspace">
-      {NAV.map(([id,label,sub])=><button key={id} className={mode===id?'active':''} onClick={()=>setMode(id)}><span className="nav-mark"/><span className="nav-label"><b>{label}</b><small>{sub}</small></span></button>)}
+      {NAV.map(([id,label,sub])=><button key={id} aria-current={mode===id?'page':undefined} className={mode===id?'active':''} onClick={()=>setMode(id)}><span className="nav-mark"/><span className="nav-label"><b>{label}</b><small>{sub}</small></span></button>)}
     </nav>
 
     <div className="workspace">
-      {mode==='write'&&<WriteView workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
+      {mode==='write'&&<WriteView onSceneSaved={(id,data)=>setWorkspace(ws=>ws?{...ws,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
       {mode==='structure'&&<StructureView workspace={workspace} project={project} branch={branch} episode={episode} reload={reload}/>}
       {mode==='diagnose'&&<DiagnoseView episode={episode}/>}
       {mode==='help'&&<HelpView/>}

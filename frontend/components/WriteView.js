@@ -1,59 +1,75 @@
 'use client';
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {create, patch} from '@/lib/api';
+import {create, localApi, remoteApi} from '@/lib/api';
+import {createDraftSaver} from '@/lib/draft-saver.mjs';
 import {parseFountain} from '@/lib/fountain.mjs';
 
 const blank = {slugline:'', screenplay_text:'', opening_behavior:'', scene_want:'', obstacle:'', tactic:'', pressure:'', choice:'', start_state:'', end_state:'', cut_on:'', notes:'', moral_delta:0, pov_character_id:null};
 
-export default function WriteView({workspace, episode, sceneId, setSceneId, reload}) {
+export default function WriteView({workspace, episode, sceneId, setSceneId, reload, storageScope, onSceneSaved}) {
   const scenes = useMemo(() => (workspace?.scenes || []).filter(s=>s.episode_id===episode?.id).sort((a,b)=>a.scene_no-b.scene_no), [workspace, episode]);
   const selected = scenes.find(s=>s.id===sceneId) || scenes[0];
   const [draft, setDraft] = useState(selected || blank);
   const [structureOpen, setStructureOpen] = useState(false);
   const [saveState, setSaveState] = useState('saved');
   const [viewMode, setViewMode] = useState('edit');
-  const timer = useRef(null);
+  const saver = useRef(null);
 
   useEffect(()=>{
-    if (selected) {
-      const cached = typeof window !== 'undefined' ? localStorage.getItem(`pressure-room-draft:${selected.id}`) : null;
-      setDraft(cached ? {...selected, screenplay_text: cached} : selected);
-      setSceneId(selected.id);
-    } else setDraft(blank);
-  }, [selected?.id]);
+    let active = true;
+    if (!selected) { setDraft(blank); return; }
+    const instance = createDraftSaver({
+      key: `pressure-room-draft-v2:${storageScope}:${selected.id}`,
+      storage: {
+        getItem: key => localStorage.getItem(key),
+        setItem: (key, value) => localStorage.setItem(key, value),
+        removeItem: key => localStorage.removeItem(key),
+      },
+      send: async payload => {
+        const saveApi = storageScope.startsWith('local:') ? localApi : remoteApi;
+        await saveApi(`/scenes/${selected.id}`, {method:'PATCH', body:JSON.stringify({data:payload})});
+        onSceneSaved(selected.id, payload);
+      },
+      onState: state => { if (active) setSaveState(state); },
+    });
+    saver.current = instance;
+    const recovered = instance.recover();
+    setDraft(recovered ? {...selected, ...recovered} : selected);
+    setSaveState(recovered ? 'offline' : 'saved');
+    setSceneId(selected.id);
+    if (recovered) instance.update(recovered);
+    const flush = () => { void instance.flush(); };
+    const beforeUnload = event => {
+      if (instance.isPending()) { event.preventDefault(); event.returnValue = ''; }
+      flush();
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => {
+      active = false;
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', beforeUnload);
+      void instance.flush();
+    };
+  }, [selected?.id, storageScope]);
 
   useEffect(()=>{
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('pressure-room-write-view') : null;
-    if (saved === 'page') setViewMode('page');
+    try { if (localStorage.getItem('pressure-room-write-view') === 'page') setViewMode('page'); } catch {}
   },[]);
-
-  useEffect(()=>()=>clearTimeout(timer.current),[]);
 
   function chooseView(nextMode) {
     setViewMode(nextMode);
-    if (typeof window !== 'undefined') localStorage.setItem('pressure-room-write-view', nextMode);
+    try { localStorage.setItem('pressure-room-write-view', nextMode); } catch {}
   }
 
   function change(key, value) {
     const next = {...draft, [key]: value};
     setDraft(next);
-    if (key==='screenplay_text' && selected?.id) localStorage.setItem(`pressure-room-draft:${selected.id}`, value);
     if (!selected?.id) return;
-    setSaveState('saving');
-    clearTimeout(timer.current);
-    timer.current = setTimeout(async ()=>{
-      const fields = ['slugline','screenplay_text','opening_behavior','scene_want','obstacle','tactic','pressure','choice','start_state','end_state','cut_on','notes','moral_delta','pov_character_id'];
-      const payload = Object.fromEntries(fields.map(k=>[k,next[k] ?? '']));
-      payload.pov_character_id = next.pov_character_id || null;
-      payload.moral_delta = Number(next.moral_delta || 0);
-      try {
-        await patch('scenes', selected.id, payload);
-        setSaveState('saved');
-        localStorage.removeItem(`pressure-room-draft:${selected.id}`);
-      } catch {
-        setSaveState('offline');
-      }
-    }, 700);
+    const payload = Object.fromEntries(Object.keys(blank).map(k=>[k,next[k] ?? '']));
+    payload.pov_character_id = next.pov_character_id || null;
+    payload.moral_delta = Number(next.moral_delta || 0);
+    saver.current?.update(payload);
   }
 
   async function addScene() {
@@ -93,7 +109,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
                 <button type="button" className={viewMode==='edit'?'active':''} aria-pressed={viewMode==='edit'} onClick={()=>chooseView('edit')}>Edit</button>
                 <button type="button" className={viewMode==='page'?'active':''} aria-pressed={viewMode==='page'} onClick={()=>chooseView('page')}>Page</button>
               </div>
-              <div className={`save-state ${saveState}`}><i/>{saveState==='saving'?'Saving':saveState==='offline'?'Saved on this device':'Saved'}</div>
+              <div className={`save-state ${saveState}`} role="status" aria-live="polite"><i/>{saveState==='saving'?'Saving…':saveState==='offline'?'Draft on device · sync failed':saveState==='uncached'?'Backup unavailable · keep this tab open':'Saved'}{(saveState==='offline'||saveState==='uncached')&&<button className="quiet-action" onClick={()=>saver.current?.flush()}>Retry</button>}</div>
             </div>
           </div>
 
@@ -101,11 +117,11 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
             ? <section className="writer-paper">
                 <input className="slugline-input" value={draft.slugline || ''} onChange={e=>change('slugline', e.target.value)} aria-label="Scene heading" placeholder="INT. LOCATION — DAY"/>
                 <div className="paper-rule"/>
-                <textarea className="screenplay-editor" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} placeholder="Write the scene…" spellCheck="true"/>
+                <textarea className="screenplay-editor" aria-label="Scene screenplay" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} placeholder="Write the scene…" spellCheck="true"/>
               </section>
             : <ScreenplayPage slugline={draft.slugline || ''} text={draft.screenplay_text || ''}/>}
 
-          <button className={`structure-toggle ${structureOpen?'active':''}`} onClick={()=>setStructureOpen(v=>!v)}>
+          <button aria-expanded={structureOpen} className={`structure-toggle ${structureOpen?'active':''}`} onClick={()=>setStructureOpen(v=>!v)}>
             <span className="structure-toggle-main"><i/><span><b>Scene structure</b><small>{draft.scene_want || draft.pressure || draft.choice ? 'The machinery under the page' : 'Add only what helps you write the next beat'}</small></span></span>
             <span className="structure-toggle-meta">{structureOpen?'Close':'Want · Pressure · Choice'} <b>{structureOpen?'↑':'↓'}</b></span>
           </button>

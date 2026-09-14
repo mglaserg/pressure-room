@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import os
+import sqlite3
+import zipfile
+from urllib.parse import quote
 from typing import Any
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
 from . import db, drive_store, fountain_link
+from .request_limits import RequestLimitMiddleware
 from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions
-from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes
+from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes, MAX_PACKAGE_BYTES
 
 
 @asynccontextmanager
@@ -19,7 +24,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.6.1", lifespan=lifespan)
+app.add_middleware(RequestLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -27,6 +33,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    origin = request.headers.get("origin")
+    allowed = {"http://localhost:3000", "http://127.0.0.1:3000", drive_store.PUBLIC_URL}
+    allowed.update(v.strip() for v in os.getenv("PRESSURE_ROOM_ALLOWED_ORIGINS", "").split(",") if v.strip())
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and (
+        request.headers.get("sec-fetch-site") == "cross-site" or (origin and origin not in allowed)
+    ):
+        return JSONResponse({"detail": "Cross-origin write rejected"}, status_code=403)
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@app.exception_handler(ValueError)
+@app.exception_handler(sqlite3.IntegrityError)
+async def invalid_relationship(request, exc):
+    return JSONResponse({"detail": "Invalid record value or relationship"}, status_code=400)
 
 
 class Payload(BaseModel):
@@ -57,6 +85,11 @@ PATCH_FIELDS = {
 
 def _prepare(request: Request) -> dict | None:
     if not drive_store.enabled():
+        # Browser-local mode does not need the server database. Public deployments
+        # must never fall back to sharing one anonymous SQLite workspace.
+        if os.getenv("PRESSURE_ROOM_ALLOW_LOCAL_API", "").lower() != "true":
+            raise HTTPException(403, "Server-local storage is disabled. Use browser storage or connect Google Drive.")
+        db.bind_default_cache()
         return None
     session = drive_store.require_session(request)
     drive_store.ensure_local(session)
@@ -75,7 +108,7 @@ def _save(session: dict | None, project_id: str | None) -> None:
 def health():
     return {
         "ok": True,
-        "version": "0.6.0",
+        "version": "0.6.1",
         "storage": drive_store.storage_mode(),
         "cache": db.database_backend(),
     }
@@ -86,7 +119,7 @@ def ready():
     try:
         db.ping()
     except Exception as exc:
-        raise HTTPException(503, f"Local cache unavailable: {exc}")
+        raise HTTPException(503, "Local cache unavailable")
     error = drive_store.configuration_error()
     if error:
         raise HTTPException(503, error)
@@ -108,7 +141,7 @@ def google_callback(request: Request, code: str, state: str):
     return drive_store.callback_response(request, code, state)
 
 
-@app.get("/api/google/disconnect")
+@app.post("/api/google/disconnect")
 def google_disconnect():
     return drive_store.disconnect_response()
 
@@ -178,6 +211,8 @@ def patch_object(table: str, object_id: str, payload: Payload, request: Request)
     if unknown:
         raise HTTPException(400, f"Unsupported fields: {', '.join(sorted(unknown))}")
     project_id = db.project_id_for_object(table, object_id)
+    if not project_id:
+        raise HTTPException(404, "Record not found")
     db.update(table, object_id, payload.data)
     _save(session, project_id)
     return {"ok": True}
@@ -407,15 +442,17 @@ def export(project_id: str, kind: str, request: Request):
         payload = db.project_payload(project_id)
     except KeyError:
         raise HTTPException(404, "Project not found")
-    title = payload["project"]["title"].replace("/", "-")
+    title = "".join(c if c.isalnum() or c in " -_" else "_" for c in payload["project"]["title"])[:120] or "Story"
+    def disposition(suffix):
+        return {"Content-Disposition": f"attachment; filename=story{suffix}; filename*=UTF-8\'\'{quote(title + suffix, safe='')}"}
     if kind == "package":
-        return Response(package_bytes(payload), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{title}.pressureroom"'})
+        return Response(package_bytes(payload), media_type="application/zip", headers=disposition(".pressureroom"))
     if kind == "markdown":
-        return Response(project_markdown(payload), media_type="text/markdown; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{title}-story-packet.md"'})
+        return Response(project_markdown(payload), media_type="text/markdown; charset=utf-8", headers=disposition("-story-packet.md"))
     if kind == "fountain":
-        return Response(fountain(payload), media_type="text/plain; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{title}.fountain"'})
+        return Response(fountain(payload), media_type="text/plain; charset=utf-8", headers=disposition(".fountain"))
     if kind == "pdf":
-        return Response(pdf_bytes(payload), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{title}-story-packet.pdf"'})
+        return Response(pdf_bytes(payload), media_type="application/pdf", headers=disposition("-story-packet.pdf"))
     raise HTTPException(400, "Unknown export kind")
 
 
@@ -426,11 +463,15 @@ async def import_project(
     mode: str = Query("copy", pattern="^(copy|replace)$"),
 ):
     session = _prepare(request)
-    raw = await file.read()
+    raw = await file.read(MAX_PACKAGE_BYTES + 1)
+    if len(raw) > MAX_PACKAGE_BYTES:
+        raise HTTPException(413, "Project package exceeds the 10 MiB limit")
     try:
         payload = read_package(raw)
+        # A portable upload must not authorize writes to an embedded Drive file ID.
+        payload.pop("project_source", None)
         pid = db.import_payload(payload, mode=mode)
-    except Exception as exc:
-        raise HTTPException(400, f"Import failed: {exc}")
+    except (ValueError, KeyError, TypeError, sqlite3.Error, zipfile.BadZipFile, RuntimeError):
+        raise HTTPException(400, "Invalid project package. No imported changes were saved.")
     _save(session, pid)
     return {"project_id": pid}

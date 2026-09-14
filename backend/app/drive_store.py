@@ -5,7 +5,7 @@ import os
 import secrets
 import threading
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -21,6 +21,8 @@ SESSION_KEY = os.getenv("PRESSURE_ROOM_SESSION_KEY", "").strip()
 PUBLIC_URL = os.getenv("PRESSURE_ROOM_PUBLIC_URL", "").strip().rstrip("/")
 GOOGLE_PICKER_API_KEY = os.getenv("GOOGLE_PICKER_API_KEY", "").strip()
 GOOGLE_CLOUD_PROJECT_NUMBER = os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
+
+SESSION_TTL = 60 * 60 * 24 * 90
 
 COOKIE_NAME = "pressure_room_google"
 STATE_COOKIE = "pressure_room_google_state"
@@ -73,8 +75,11 @@ def configuration_error() -> str | None:
         Fernet(SESSION_KEY.encode())
     except Exception:
         return "PRESSURE_ROOM_SESSION_KEY is not a valid Fernet key."
-    if not PUBLIC_URL.startswith(("http://", "https://")):
-        return "PRESSURE_ROOM_PUBLIC_URL must be an absolute http(s) URL."
+    url = urlsplit(PUBLIC_URL)
+    if not url.hostname or url.username or url.password or url.query or url.fragment or url.path:
+        return "PRESSURE_ROOM_PUBLIC_URL must be an origin without a path or credentials."
+    if url.scheme != "https" and not (url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}):
+        return "Google Drive requires HTTPS except on localhost."
     return None
 
 
@@ -105,7 +110,8 @@ def _open(token: str) -> dict | None:
     if not token:
         return None
     try:
-        return json.loads(_fernet().decrypt(token.encode()))
+        payload = json.loads(_fernet().decrypt(token.encode(), ttl=SESSION_TTL))
+        return payload if isinstance(payload, dict) else None
     except (InvalidToken, ValueError, TypeError, json.JSONDecodeError):
         return None
 
@@ -118,7 +124,7 @@ def session_from_request(request: Request) -> dict | None:
 
 def require_session(request: Request) -> dict:
     if not enabled():
-        return {}
+        raise HTTPException(503, "Google Drive is not configured.")
     error = configuration_error()
     if error:
         raise HTTPException(503, error)
@@ -146,6 +152,8 @@ def status(request: Request) -> dict:
 
 
 def connect_response() -> Response:
+    if not enabled():
+        raise HTTPException(503, "Google Drive is not configured.")
     error = configuration_error()
     if error:
         raise HTTPException(503, error)
@@ -222,7 +230,7 @@ def callback_response(request: Request, code: str, state: str) -> Response:
         "expires_at": time.time() + max(60, expires_in - 60),
     }
     response = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
-    response.set_cookie(COOKIE_NAME, _seal(session), max_age=60 * 60 * 24 * 90, httponly=True, secure=_secure_cookie(), samesite="lax", path="/")
+    response.set_cookie(COOKIE_NAME, _seal(session), max_age=SESSION_TTL, httponly=True, secure=_secure_cookie(), samesite="lax", path="/")
     response.delete_cookie(STATE_COOKIE, path="/")
     return response
 
@@ -511,9 +519,10 @@ def sync_all_from_drive(session: dict) -> dict:
         packages = [_download_project(session, item["id"]) for item in project_files]
         if any(payload.get("format") != "pressure-room" for payload in packages):
             raise HTTPException(502, "A Pressure Room Drive file is not a valid project package.")
-        db.clear_projects()
-        for payload in packages:
-            db.import_payload(payload, mode="replace")
+        with db.transaction():
+            db.clear_projects()
+            for payload in packages:
+                db.import_payload(payload, mode="replace")
         LAST_SYNC_AT[sub] = time.monotonic()
         return {"pulled": len(packages), "pushed": 0}
 

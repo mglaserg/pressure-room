@@ -1,5 +1,5 @@
 export const API = '/api';
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 65000;
 const STORAGE_MODE_KEY = 'pressure-room-storage-mode';
 const LOCAL_DB_KEY = 'pressure-room-local-db';
 
@@ -53,9 +53,13 @@ function readDb() {
     const raw = w.localStorage.getItem(LOCAL_DB_KEY);
     if (!raw) return blankDb();
     const parsed = JSON.parse(raw);
-    return {...blankDb(), ...(parsed || {})};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+        Object.keys(blankDb()).some(key => key in parsed && !Array.isArray(parsed[key]))) {
+      throw new Error('Invalid browser database');
+    }
+    return {...blankDb(), ...parsed};
   } catch {
-    return blankDb();
+    throw new Error("This browser’s story data could not be read. It has been left untouched; export or recover the browser data before creating new stories.");
   }
 }
 
@@ -220,7 +224,7 @@ function restoreProjectFromPayload(db, payload) {
   return projectId;
 }
 
-async function localApi(path, options = {}) {
+export async function localApi(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   const db = readDb();
   const [pathname] = path.split('?');
@@ -570,7 +574,7 @@ export async function remoteApi(path, options = {}) {
     return type.includes('application/json') ? res.json() : res;
   } catch (error) {
     if (error?.name === 'AbortError') {
-      throw new Error('Pressure Room API did not respond within 12 seconds. Open /api/health to check the server connection.');
+      throw new Error('Pressure Room API did not respond in time. Your request may still have completed; check the saved story before retrying.');
     }
     throw error;
   } finally {
