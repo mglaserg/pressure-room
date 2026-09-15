@@ -14,8 +14,11 @@ from pydantic import BaseModel
 
 from . import db, drive_store, fountain_link
 from .request_limits import RequestLimitMiddleware
+<<<<<<< HEAD
 from . import workspace_ops
 from .workspace_ops import workspace_request, check_revision
+=======
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
 from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions
 from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes, MAX_PACKAGE_BYTES
 
@@ -26,7 +29,11 @@ async def lifespan(app: FastAPI):
     yield
 
 
+<<<<<<< HEAD
 app = FastAPI(title="Pressure Room API", version="0.7.0", lifespan=lifespan)
+=======
+app = FastAPI(title="Pressure Room API", version="0.6.1", lifespan=lifespan)
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
 app.add_middleware(RequestLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -111,7 +118,11 @@ def _save(session: dict | None, project_id: str | None) -> None:
 def health():
     return {
         "ok": True,
+<<<<<<< HEAD
         "version": "0.7.0",
+=======
+        "version": "0.6.1",
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
         "storage": drive_store.storage_mode(),
         "cache": db.database_backend(),
     }
@@ -145,8 +156,13 @@ def google_callback(request: Request, code: str, state: str):
 
 
 @app.post("/api/google/disconnect")
+<<<<<<< HEAD
 def google_disconnect(request: Request):
     return drive_store.disconnect_response(request)
+=======
+def google_disconnect():
+    return drive_store.disconnect_response()
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
 
 
 @app.post("/api/google/sync")
@@ -222,7 +238,10 @@ def patch_object(table: str, object_id: str, payload: Payload, request: Request)
     project_id = db.project_id_for_object(table, object_id)
     if not project_id:
         raise HTTPException(404, "Record not found")
+<<<<<<< HEAD
     check_revision(request, project_id)
+=======
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     db.update(table, object_id, payload.data)
     _save(session, project_id)
     return {"ok": True}
@@ -494,15 +513,22 @@ def import_project(
     mode: str = Query("copy", pattern="^(copy|replace)$"),
 ):
     session = _prepare(request)
+<<<<<<< HEAD
     raw = file.file.read(MAX_PACKAGE_BYTES + 1)
+=======
+    raw = await file.read(MAX_PACKAGE_BYTES + 1)
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     if len(raw) > MAX_PACKAGE_BYTES:
         raise HTTPException(413, "Project package exceeds the 10 MiB limit")
     try:
         payload = read_package(raw)
         # A portable upload must not authorize writes to an embedded Drive file ID.
         payload.pop("project_source", None)
+<<<<<<< HEAD
         if mode == "replace" and db.one("SELECT id FROM projects WHERE id=?", [payload["project"]["id"]]):
             check_revision(request, payload["project"]["id"])
+=======
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
         pid = db.import_payload(payload, mode=mode)
     except (ValueError, KeyError, TypeError, sqlite3.Error, zipfile.BadZipFile, RuntimeError):
         raise HTTPException(400, "Invalid project package. No imported changes were saved.")

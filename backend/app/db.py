@@ -338,8 +338,12 @@ def insert(table: str, payload: dict) -> str:
 def update(table: str, object_id: str, payload: dict) -> None:
     _validate_columns(table, payload)
     data = dict(payload)
+<<<<<<< HEAD
     primary = "project_id" if table == "project_sources" else "id"
     existing = one(f"SELECT * FROM {table} WHERE {primary}=?", [object_id])
+=======
+    existing = one(f"SELECT * FROM {table} WHERE id=?", [object_id])
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     if not existing:
         raise KeyError(object_id)
     _validate_relationships(table, {**existing, **data})

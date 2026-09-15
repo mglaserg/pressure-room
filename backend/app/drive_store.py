@@ -587,6 +587,7 @@ def drain_project(session, project_id):
 def sync_all_from_drive(session: dict) -> dict:
     sub = _bind_user_cache(session)
     with SYNC_LOCK:
+<<<<<<< HEAD
         files=_project_files(session)
         # Never erase local or queued work just because a file disappeared remotely.
         pulled=0; pending=0
@@ -613,6 +614,26 @@ def sync_all_from_drive(session: dict) -> dict:
             pulled+=1
         LAST_SYNC_AT[sub]=time.monotonic()
         return {'pulled':pulled,'pending':pending,'pushed':0}
+=======
+        folder_id = _folder_id(session)
+        project_files = _project_files(session, folder_id)
+        if not project_files:
+            local = db.get_projects()
+            for project in local:
+                save_project(session, project["id"])
+            LAST_SYNC_AT[sub] = time.monotonic()
+            return {"pulled": 0, "pushed": len(local)}
+
+        packages = [_download_project(session, item["id"]) for item in project_files]
+        if any(payload.get("format") != "pressure-room" for payload in packages):
+            raise HTTPException(502, "A Pressure Room Drive file is not a valid project package.")
+        with db.transaction():
+            db.clear_projects()
+            for payload in packages:
+                db.import_payload(payload, mode="replace")
+        LAST_SYNC_AT[sub] = time.monotonic()
+        return {"pulled": len(packages), "pushed": 0}
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
 
 
 def ensure_local(session: dict, max_age_seconds: float = 15.0) -> None:

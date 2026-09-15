@@ -224,7 +224,19 @@ export default function Home(){
         {branchEpisodes.length?<label className="context-select"><span>Episode</span><select value={episode?.id||''} onChange={e=>{setEpisodeId(e.target.value);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}</select></label>:<button className="context-add" onClick={createEpisode}>＋ Episode</button>}
       </div>
 
+<<<<<<< HEAD
       <div className="top-actions"><button className="button compact room-menu-trigger" aria-haspopup="dialog" onClick={()=>setRoomMenu(true)}>Room <span aria-hidden="true">☰</span></button></div>
+=======
+      <div className="top-actions">
+        {storageMode==='drive'&&drive?.connected&&<form action="/api/google/disconnect" method="post"><button className="quiet-action" title={drive.email||'Google Drive'}>Disconnect Drive</button></form>}
+        {storageMode==='drive'&&workspace?.project_source?.source_kind==='fountain'&&<span className="quiet-action" title={workspace.project_source.drive_file_name||'Linked Fountain'}>Fountain ↔</span>}
+        {storageMode==='drive'&&drive?.connected&&drive?.picker_configured&&<GoogleFountainPicker className="quiet-action" label="Open Fountain" onOpened={async result=>await loadProjects(result.project_id)}/>}
+        {storageMode==='local'&&<span className="quiet-action" title="Saved in this browser on this device">This device</span>}
+        {storageMode==='local'&&drive?.configured&&<button className="quiet-action" onClick={chooseDriveMode}>Use Drive</button>}
+        <button className="quiet-action" onClick={()=>setNewStory(true)}>＋ Story</button>
+        {storageMode==='drive'&&<button className="button compact" onClick={()=>setShare(true)}>Share</button>}
+      </div>
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     </header>
 
     <nav className="primary-nav" aria-label="Primary workspace">
@@ -234,7 +246,11 @@ export default function Home(){
     {error&&<div className="sync-notice" role="alert"><p>{error}</p><button className="button secondary" onClick={()=>setError('')}>Dismiss</button></div>}
     <SyncNotice workspace={workspace} onResolved={id=>loadProjects(id)} onBackup={()=>setShare(true)}/>
     <div className="workspace">
+<<<<<<< HEAD
       {mode==='write'&&<WriteView onSceneSaved={(id,data,result)=>setWorkspace(ws=>ws?{...ws,revision:result.revision||ws.revision,sync:result.sync||ws.sync,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
+=======
+      {mode==='write'&&<WriteView onSceneSaved={(id,data)=>setWorkspace(ws=>ws?{...ws,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
       {mode==='structure'&&<StructureView workspace={workspace} project={project} branch={branch} episode={episode} reload={reload}/>}
       {mode==='diagnose'&&<DiagnoseView episode={episode}/>}
       {mode==='help'&&<HelpView/>}

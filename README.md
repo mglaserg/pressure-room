@@ -1,6 +1,12 @@
+<<<<<<< HEAD
 # Pressure Room v0.7.0
 
 Security, recovery and design follow-up (2026-09-15): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local and Google Drive modes; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
+=======
+# Pressure Room v0.6.1
+
+Security and reliability cleanup (2026-09-14): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local and Google Drive modes; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
 
 **Stories reveal character under pressure.**
 

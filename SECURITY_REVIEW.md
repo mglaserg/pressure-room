@@ -1,8 +1,16 @@
+<<<<<<< HEAD
 # Pressure Room 0.7.0 — security, cleanup and design review
 
 Reviewed September 14–15, 2026. Source: `pressure-room-2026-09-14_154506-72c9197.bundle`, base commit `72c9197fe6a0001156c9dc0204a2812fc0df5143`. Updated package version: **0.7.0**.
 
 The cleanup addresses concrete security and data-preservation defects while retaining the current writing interface. Dependency audits now return **zero known vulnerabilities**. This is a source review and local verification, not a production penetration test or a guarantee that the application is vulnerability-free. Drive conflict handling is implemented in this follow-up; live integration and durable deployment storage still require verification.
+=======
+# Pressure Room — security, cleanup and design review
+
+Reviewed September 14, 2026. Source: `pressure-room-2026-09-14_154506-72c9197.bundle`, base commit `72c9197fe6a0001156c9dc0204a2812fc0df5143`. Updated package version: **0.6.1**.
+
+The cleanup addresses concrete security and data-preservation defects while retaining the current writing interface. Dependency audits now return **zero known vulnerabilities**. This is a source review and local verification, not a production penetration test or a guarantee that the application is vulnerability-free. **Drive conflict handling remains the main unresolved data-loss risk.**
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
 
 ## Findings and changes
 
@@ -33,6 +41,7 @@ The [Next.js release blog](https://nextjs.org/blog) identifies 15.5.24 as the Au
 
 Machine-readable audit output is included under `audit/`. These are point-in-time registry results, not future guarantees.
 
+<<<<<<< HEAD
 ## Follow-up completed — September 15, 2026
 
 The 0.7.0 follow-up addresses the code and interface work left by 0.6.1. It does not certify a running deployment or a Google account. The findings above remain the record of the original cleanup; the status below supersedes that iteration's remaining-work list.
@@ -77,3 +86,45 @@ Desktop and mobile screenshots are under `audit/screenshots/`. Native dialog Esc
 4. **Platform protection.** Repository branch protection and frontend hosting gates must be configured separately. The existing limited CSP is not a full nonce-based script policy. Shared-browser storage remains readable to another person using that profile; disconnect does not encrypt or erase browser-local stories.
 
 See `UPGRADE.md` for migration, recovery behavior and required deployment settings. The full bundle retains Git history. The ZIP excludes installed dependencies and runtime databases.
+=======
+## Remaining risks and architecture considerations
+
+1. **Drive synchronization and external edits — high data-loss priority.** `ensure_local()` can rehydrate the cache after 15 seconds; writes and refreshes do not form one durable operation. Sidecar and Fountain writes are separate, and linked Fountain uploads do not use a remote precondition to reject conflicting modifications. Two tabs/devices or another editor can overwrite work. The in-process lock does not coordinate processes or containers. The current deployment specifies one task, but that does not solve concurrent browser/device edits. Add a per-project durable write queue, revision checks/conditional updates where supported, recoverable conflict copies, and explicit conflict UI before enabling multi-instance deployment. API timeouts still cannot prove a write did not complete. Do not blindly retry destructive or create operations.
+2. **Linked Fountain branch semantics.** The current renderer walks all project episodes, including alternate branches; cloning a branch can cause alternatives to appear in a single linked script. Decide which branch is authoritative for a linked Fountain file and require an explicit export choice for alternatives. This iteration does not change that behavior silently.
+3. **Browser-local backup and parity.** Browser-local stories still lack the existing Drive-only import/export UI. Clearing site data, changing origin/browser/profile, or device failure can lose that store. Add a one-click local project backup and validated restore before making browser-only storage the preferred durable workflow. Local and Python data engines duplicate behavior and have different feature coverage; move toward a shared contract and parity tests. Corrupt/unreadable browser JSON now produces an error rather than being silently replaced with an empty store.
+4. **Session revocation and shared devices.** The Google session is still a client-held encrypted token. Logout deletes the current cookie; it does not revoke copied cookies or Google consent. Tokens are cached in process, and browser recovery drafts remain on the device. New recovery keys include storage mode/account, but this is not encryption or protection against someone using the same browser profile. Plan server-side revocation and an explicit account/draft cleanup policy if multi-user/shared-device use grows.
+5. **Production protection still needs inspection.** No live AWS/Amplify/ECS configuration, IAM policies, WAF/rate limiting, TLS termination, Google OAuth/Picker restrictions, logs, container OS scan, or backup recovery drill was examined. The CSP added here covers framing, base URIs and objects; it is not a complete script policy. A nonce-based policy must account for Next.js hydration and Google Picker. CI is added as a separate verification workflow; make it a required branch/deployment check in repository settings. Existing deployment is not automatically blocked by this independent workflow.
+6. **Large projects.** Full-project packages and repeated snapshots amplify upload volume, decompression and parsing costs. Quotas, snapshot retention, delta saves, and streaming bounded Drive downloads remain useful future work. Backend Drive downloads currently buffer their bodies before package validation; the upload limits do not cap all upstream downloads.
+
+Positive controls already present: per-Google-account cache paths are derived from stable account identity; SQL values are parameterized; editable PATCH fields are explicitly constrained; PDF content is escaped; React renders screenplay text as text; OAuth uses a random state cookie and an HttpOnly encrypted session; Drive uses the narrower `drive.file` scope. These are useful foundations and were retained.
+
+## Design considerations
+
+This assessment is based on component and stylesheet inspection. Automated browser installation failed, so no rendered desktop/mobile or assistive-technology verification is claimed.
+
+The strongest existing choices are the restrained dark chrome, warm writing paper, separate UI/display/screenplay typography, clear Write / Structure / Diagnose modes, and collapsed deeper scene structure. Preserve those. The best next iteration should make writing feel safer and calmer, rather than add another dashboard.
+
+| Priority | Design action | Why it matters |
+|---|---|---|
+| First | One truthful save indicator with distinct states: saving, saved locally, synced to Drive, failed, conflict. Provide retry/recovery close to the editor. | Writers should never infer durability from a green label. This pass corrects failed-save language and retains full drafts; conflict states still need backend support. |
+| First | A visible Backup action in browser-local mode; account/storage settings with clear location and recovery information. | Storage choice is a meaningful user decision; users need a way out of the browser before a failure. |
+| Next | Reduce mobile header actions to story/episode context and one overflow menu. Put path switching, storage management, import/export and new-story actions there. | The top bar currently combines navigation, creation, account state and file actions; fewer simultaneous controls give the page more space. |
+| Next | Focus mode: collapse scene rail and optional structure while retaining scene navigation and save status. | The existing progressive disclosure is good; extend it without hiding essential save state. |
+| Next | Diagnose should lead with one actionable observation, then reveal the full check list. | Treat diagnostics as help for the next revision, not a scorecard the writer must clear. |
+| Next | Label the current Share menu “Export & backup,” with genuine collaboration separated if introduced later. Put disconnect inside account settings. | Current exports are downloads; the naming should communicate what will happen. The previous Drive status link also logged the user out unexpectedly. |
+| Verify | Keyboard flow, native modal behavior, narrow screens, 200% zoom, touch targets and actual text contrast. | Source-level fixes were added, but visual and accessibility checks still need a real browser/device pass. |
+
+## Verification
+
+- Existing baseline: 10 backend tests passed before edits.
+- Updated backend: **24 tests passed**, including failed-import and failed-Drive-pull rollback, snapshot history, source-table insertion, imported link stripping, cross-story snapshot rejection, server-side session expiry, body/ZIP limits, safe Unicode exports, cross-origin writes, anonymous API denial, and relationship validation.
+- Frontend: **7 tests passed** (3 existing Fountain parser tests plus 4 autosave/recovery tests).
+- Next.js production build compiled and generated all 7 pages successfully; no major Next.js upgrade required.
+- Production HTTP smoke check: web page and proxied health returned 200, anonymous project API returned 403, and response security headers were present.
+- npm audit after dependency update: **0 known vulnerabilities**. Python resolved dependency audit: **0 known vulnerabilities**.
+- A limited pattern scan of 330 reachable Git objects found no matches for private-key blocks, AWS access-key IDs, GitHub token formats, or Google client-secret format. This is not an exhaustive secret scan and does not inspect external secret stores.
+- Two test-library deprecation warnings remain (Starlette/httpx and AnyIO test integration); they did not affect results.
+- Live Google authentication, live Drive mutations, multi-device conflict behavior, Docker image execution, deployment and visual browser QA were not verified.
+
+See `UPGRADE.md` for compatibility changes, patch application, cache permissions, and storage expectations. The full bundle retains Git history; the source ZIP excludes history, installed dependencies and runtime data.
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020

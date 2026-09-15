@@ -230,12 +230,15 @@ function restoreProjectFromPayload(db, payload) {
 }
 
 export async function localApi(path, options = {}) {
+<<<<<<< HEAD
   const run=()=>localRequest(path,options);
   if (typeof navigator!=='undefined' && navigator.locks) return navigator.locks.request('pressure-room-db',run);
   return run();
 }
 
 async function localRequest(path, options = {}) {
+=======
+>>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
   const method = (options.method || 'GET').toUpperCase();
   const db = readDb();
   const [pathname] = path.split('?');
