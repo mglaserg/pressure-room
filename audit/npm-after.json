@@ -11,20 +11,12 @@
       "total": 0
     },
     "dependencies": {
-<<<<<<< HEAD
       "prod": 16,
-=======
-      "prod": 15,
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
       "dev": 0,
       "optional": 39,
       "peer": 0,
       "peerOptional": 0,
-<<<<<<< HEAD
       "total": 54
-=======
-      "total": 53
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     }
   }
 }

@@ -74,10 +74,6 @@ MAX_PACKAGE_BYTES = 10 * 1024 * 1024
 MAX_PROJECT_BYTES = 32 * 1024 * 1024
 
 
-MAX_PACKAGE_BYTES = 10 * 1024 * 1024
-MAX_PROJECT_BYTES = 32 * 1024 * 1024
-
-
 def read_package(raw: bytes) -> dict:
     if len(raw) > MAX_PACKAGE_BYTES:
         raise ValueError("Project package exceeds the 10 MiB limit")

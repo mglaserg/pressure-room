@@ -2,6 +2,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {api, create, getStorageMode, remoteApi, setStorageMode} from '@/lib/api';
 import WriteView from '@/components/WriteView';
+import {flushDrafts} from '@/lib/draft-saver.mjs';
 import StructureView from '@/components/StructureView';
 import DiagnoseView from '@/components/DiagnoseView';
 import HelpView from '@/components/HelpView';
@@ -25,6 +26,7 @@ export default function Home(){
   const [mode,setMode]=useState('write');
   const [branchId,setBranchId]=useState('');
   const [episodeId,setEpisodeId]=useState('');
+  const [episodeBusy,setEpisodeBusy]=useState(false);
   const [sceneId,setSceneId]=useState('');
   const [roomMenu,setRoomMenu]=useState(false);
   const [share,setShare]=useState(false);
@@ -107,11 +109,17 @@ export default function Home(){
 
   async function reload(preferScene){if(projectId)await loadWorkspace(projectId,preferScene)}
   async function createEpisode(){
-    if(!project||!branch)return;
-    const n=Math.max(0,...branchEpisodes.map(e=>e.number))+1;
-    const r=await create(`/projects/${project.id}/episodes`,{branch_id:branch.id,number:n,title:`Episode ${n}`,logline:''});
-    await reload();
-    setEpisodeId(r.id);
+    if(!project||!branch||episodeBusy)return;
+    setEpisodeBusy(true);
+    try{
+      await flushDrafts();
+      const n=Math.max(0,...branchEpisodes.map(e=>e.number))+1;
+      const r=await create(`/projects/${project.id}/episodes`,{branch_id:branch.id,number:n,title:`Episode ${n}`,logline:''});
+      await reload();
+      setEpisodeId(r.id);
+      setSceneId('');
+    }catch(e){setError(e.message||'Could not create the episode.');}
+    finally{setEpisodeBusy(false);}
   }
 
   async function chooseLocalMode(){
@@ -221,22 +229,10 @@ export default function Home(){
       <div className="context-bar" aria-label="Story context">
         <label className="context-select"><span>Story</span><select value={projectId} onChange={async e=>{setProjectId(e.target.value);await loadWorkspace(e.target.value)}}>{projects.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
         <span className="context-chevron">/</span>
-        {branchEpisodes.length?<label className="context-select"><span>Episode</span><select value={episode?.id||''} onChange={e=>{setEpisodeId(e.target.value);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}</select></label>:<button className="context-add" onClick={createEpisode}>＋ Episode</button>}
+        {branchEpisodes.length?<label className="context-select"><span>Episode</span><select aria-label="Episode" disabled={episodeBusy} value={episode?.id||''} onChange={e=>{const id=e.target.value;if(id==='__new_episode__'){void createEpisode();return;}setEpisodeId(id);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}<option value="__new_episode__">+ New episode</option></select></label>:<button className="context-add" disabled={episodeBusy} onClick={createEpisode}>{episodeBusy?'Creating…':'+ Episode'}</button>}
       </div>
 
-<<<<<<< HEAD
       <div className="top-actions"><button className="button compact room-menu-trigger" aria-haspopup="dialog" onClick={()=>setRoomMenu(true)}>Room <span aria-hidden="true">☰</span></button></div>
-=======
-      <div className="top-actions">
-        {storageMode==='drive'&&drive?.connected&&<form action="/api/google/disconnect" method="post"><button className="quiet-action" title={drive.email||'Google Drive'}>Disconnect Drive</button></form>}
-        {storageMode==='drive'&&workspace?.project_source?.source_kind==='fountain'&&<span className="quiet-action" title={workspace.project_source.drive_file_name||'Linked Fountain'}>Fountain ↔</span>}
-        {storageMode==='drive'&&drive?.connected&&drive?.picker_configured&&<GoogleFountainPicker className="quiet-action" label="Open Fountain" onOpened={async result=>await loadProjects(result.project_id)}/>}
-        {storageMode==='local'&&<span className="quiet-action" title="Saved in this browser on this device">This device</span>}
-        {storageMode==='local'&&drive?.configured&&<button className="quiet-action" onClick={chooseDriveMode}>Use Drive</button>}
-        <button className="quiet-action" onClick={()=>setNewStory(true)}>＋ Story</button>
-        {storageMode==='drive'&&<button className="button compact" onClick={()=>setShare(true)}>Share</button>}
-      </div>
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     </header>
 
     <nav className="primary-nav" aria-label="Primary workspace">
@@ -246,11 +242,7 @@ export default function Home(){
     {error&&<div className="sync-notice" role="alert"><p>{error}</p><button className="button secondary" onClick={()=>setError('')}>Dismiss</button></div>}
     <SyncNotice workspace={workspace} onResolved={id=>loadProjects(id)} onBackup={()=>setShare(true)}/>
     <div className="workspace">
-<<<<<<< HEAD
       {mode==='write'&&<WriteView onSceneSaved={(id,data,result)=>setWorkspace(ws=>ws?{...ws,revision:result.revision||ws.revision,sync:result.sync||ws.sync,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
-=======
-      {mode==='write'&&<WriteView onSceneSaved={(id,data)=>setWorkspace(ws=>ws?{...ws,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
       {mode==='structure'&&<StructureView workspace={workspace} project={project} branch={branch} episode={episode} reload={reload}/>}
       {mode==='diagnose'&&<DiagnoseView episode={episode}/>}
       {mode==='help'&&<HelpView/>}

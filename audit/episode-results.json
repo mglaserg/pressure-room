@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "checks": [
+    "add episode to existing story on desktop",
+    "pending draft saved before creation",
+    "correct branch and next episode number",
+    "new episode selected",
+    "add episode on mobile",
+    "first episode on empty path",
+    "second episode on previously empty path"
+  ],
+  "pageErrors": []
+}

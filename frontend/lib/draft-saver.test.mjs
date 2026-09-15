@@ -43,7 +43,6 @@ test('unavailable browser storage is reported, but remote save is still attempte
   const saver=createDraftSaver({key:'scene4',storage:{getItem:()=>null,setItem:()=>{throw Error('quota')},removeItem:()=>{}},send:async()=>{sent=true},onState:s=>states.push(s)});
   saver.update({notes:'x'});assert.equal(states.at(-1),'uncached');await saver.flush();assert.ok(sent);assert.equal(states.at(-1),'saved');
 });
-<<<<<<< HEAD
 
 
 test('conflicting recovery stays cached and never auto-overwrites saved text', async()=>{
@@ -59,5 +58,3 @@ test('a stale revision pauses later writes until recovery is explicitly discarde
   saver.update({text:'first'});await saver.flush();saver.update({text:'second'});await saver.flush();
   assert.equal(sends,1);assert.equal(saver.recover().text,'second');saver.discard();await saver.release();
 });
-=======
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020

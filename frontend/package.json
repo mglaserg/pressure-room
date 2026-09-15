@@ -1,10 +1,6 @@
 {
   "name": "pressure-room-web",
-<<<<<<< HEAD
-  "version": "0.7.0",
-=======
-  "version": "0.6.1",
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
+  "version": "0.7.1",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",

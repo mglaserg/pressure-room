@@ -2,10 +2,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {create, localApi, remoteApi} from '@/lib/api';
 import {createDraftSaver} from '@/lib/draft-saver.mjs';
-<<<<<<< HEAD
 import {downloadBlob} from '@/lib/portable.mjs';
-=======
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
 import {parseFountain} from '@/lib/fountain.mjs';
 
 const blank = {slugline:'', screenplay_text:'', opening_behavior:'', scene_want:'', obstacle:'', tactic:'', pressure:'', choice:'', start_state:'', end_state:'', cut_on:'', notes:'', moral_delta:0, pov_character_id:null};
@@ -23,11 +20,8 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
   useEffect(()=>{
     let active = true;
     if (!selected) { setDraft(blank); return; }
-<<<<<<< HEAD
     let revision=workspace.revision;
     let recordVersion=selected.version||1;
-=======
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     const instance = createDraftSaver({
       key: `pressure-room-draft-v2:${storageScope}:${selected.id}`,
       storage: {
@@ -37,16 +31,11 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
       },
       send: async payload => {
         const saveApi = storageScope.startsWith('local:') ? localApi : remoteApi;
-<<<<<<< HEAD
         const data={...payload};delete data._base;
         const result=await saveApi(`/scenes/${selected.id}`, {method:'PATCH',revision,headers:{'X-Record-Version':String(recordVersion)},body:JSON.stringify({data})});
         revision=result.revision||revision;recordVersion=result.record_version||recordVersion+1;
         onSceneSaved(selected.id,{...data,version:recordVersion},result);
         return result;
-=======
-        await saveApi(`/scenes/${selected.id}`, {method:'PATCH', body:JSON.stringify({data:payload})});
-        onSceneSaved(selected.id, payload);
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
       },
       onState: state => { if (active) setSaveState(state); },
     });
@@ -55,16 +44,12 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     setDraft(recovered ? {...selected, ...recovered} : selected);
     setSaveState(recovered ? 'offline' : 'saved');
     setSceneId(selected.id);
-<<<<<<< HEAD
     if(recovered){
       const base=recovered._base;
       const matches=Object.keys(blank).every(k=>(base?.[k]??blank[k])===(selected[k]??blank[k]));
       if(base&&matches)instance.update(recovered);
       else {instance.pause();instance.update(recovered);}
     }
-=======
-    if (recovered) instance.update(recovered);
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     const flush = () => { void instance.flush(); };
     const beforeUnload = event => {
       if (instance.isPending()) { event.preventDefault(); event.returnValue = ''; }
@@ -76,11 +61,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
       active = false;
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', beforeUnload);
-<<<<<<< HEAD
       void instance.release();
-=======
-      void instance.flush();
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     };
   }, [selected?.id, storageScope]);
 
@@ -100,10 +81,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     const payload = Object.fromEntries(Object.keys(blank).map(k=>[k,next[k] ?? '']));
     payload.pov_character_id = next.pov_character_id || null;
     payload.moral_delta = Number(next.moral_delta || 0);
-<<<<<<< HEAD
     payload._base=Object.fromEntries(Object.keys(blank).map(k=>[k,selected[k]??blank[k]]));
-=======
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     saver.current?.update(payload);
   }
 
@@ -146,11 +124,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
                 <button type="button" className={viewMode==='edit'?'active':''} aria-pressed={viewMode==='edit'} onClick={()=>chooseView('edit')}>Edit</button>
                 <button type="button" className={viewMode==='page'?'active':''} aria-pressed={viewMode==='page'} onClick={()=>chooseView('page')}>Page</button>
               </div>
-<<<<<<< HEAD
               <div className={`save-state ${saveState}`} role="status" aria-live="polite"><i/>{saveState==='saving'?'Saving…':saveState==='conflict'?'Conflict · draft kept here':saveState==='pending'?'Saved here · Drive pending':saveState==='offline'?'Draft on device · sync failed':saveState==='uncached'?'Backup unavailable · keep this tab open':storageScope.startsWith('local:')?'Saved in this browser':'Synced to Drive'}{(saveState==='offline'||saveState==='uncached')&&<button className="quiet-action" onClick={()=>saver.current?.flush()}>Retry</button>}</div>
-=======
-              <div className={`save-state ${saveState}`} role="status" aria-live="polite"><i/>{saveState==='saving'?'Saving…':saveState==='offline'?'Draft on device · sync failed':saveState==='uncached'?'Backup unavailable · keep this tab open':'Saved'}{(saveState==='offline'||saveState==='uncached')&&<button className="quiet-action" onClick={()=>saver.current?.flush()}>Retry</button>}</div>
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
             </div>
           </div>
 
@@ -163,11 +137,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
               </section>
             : <ScreenplayPage slugline={draft.slugline || ''} text={draft.screenplay_text || ''}/>}
 
-<<<<<<< HEAD
           <button hidden={focus} aria-expanded={structureOpen} className={`structure-toggle ${structureOpen?'active':''}`} onClick={()=>setStructureOpen(v=>!v)}>
-=======
-          <button aria-expanded={structureOpen} className={`structure-toggle ${structureOpen?'active':''}`} onClick={()=>setStructureOpen(v=>!v)}>
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
             <span className="structure-toggle-main"><i/><span><b>Scene structure</b><small>{draft.scene_want || draft.pressure || draft.choice ? 'The machinery under the page' : 'Add only what helps you write the next beat'}</small></span></span>
             <span className="structure-toggle-meta">{structureOpen?'Close':'Want · Pressure · Choice'} <b>{structureOpen?'↑':'↓'}</b></span>
           </button>

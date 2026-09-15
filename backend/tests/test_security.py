@@ -127,14 +127,9 @@ def test_drive_pull_is_atomic(isolated_db, monkeypatch):
     broken=json.loads(json.dumps(original));broken['scenes'][0]['bad_column']='bad'
     monkeypatch.setattr(drive_store,'_bind_user_cache',lambda session:'test')
     monkeypatch.setattr(drive_store,'_folder_id',lambda session:'folder')
-<<<<<<< HEAD
     monkeypatch.setattr(drive_store,'_project_files',lambda *args:[{'id':'remote','appProperties':{'pressure_room_project_id':pid}}])
     monkeypatch.setattr(drive_store,'_download_project',lambda *args:broken)
     monkeypatch.setattr(drive_store,'file_revision',lambda *args:'etag')
-=======
-    monkeypatch.setattr(drive_store,'_project_files',lambda *args:[{'id':'remote'}])
-    monkeypatch.setattr(drive_store,'_download_project',lambda *args:broken)
->>>>>>> 9830cc13d40f7eec2ea97e9dea308f7acb763020
     with pytest.raises(ValueError):drive_store.sync_all_from_drive({})
     assert db.project_payload(pid)['scenes']==original['scenes']
 
