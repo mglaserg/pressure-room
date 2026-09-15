@@ -39,3 +39,39 @@
 }
 
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+
+/* A quieter room: creation, paths and storage live behind one control. */
+.context-select[hidden]{display:none}
+.room-menu{display:grid;gap:1rem;margin-top:1.25rem}
+.storage-summary{padding:1rem;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--overlay-faint)}
+.storage-summary h3{margin:.35rem 0;font-size:1.5rem}.storage-summary p{margin:.3rem 0;color:var(--text-muted);line-height:1.6}
+.room-menu small{color:var(--text-muted);font-weight:400;line-height:1.5}
+.export-row{text-align:left;color:var(--text-primary);font-family:var(--font-ui);cursor:pointer;width:100%}
+.sync-notice,.draft-recovery{margin:1rem auto;padding:1.2rem;max-width:1100px;border:1px solid var(--accent-border);border-radius:var(--radius-md);background:var(--surface-panel)}
+.sync-notice p,.draft-recovery p{line-height:1.6;margin:.35rem 0}.sync-notice small{color:var(--text-muted)}
+.writing-focus{grid-template-columns:1fr}.writing-focus .scene-rail{display:none}.writing-focus .writer-canvas{max-width:1050px;width:100%;margin:auto}
+.writing-focus .structure-toggle{display:none}.focus-scene-select{width:auto;padding:.45rem;max-width:150px}
+.writer-toolbar-actions{flex-wrap:wrap;justify-content:flex-end}.save-state{max-width:100%;white-space:normal}
+.save-state.conflict,.save-state.pending{color:var(--accent-strong)}
+.diagnostic-next{max-width:760px;margin:1rem auto 2rem;padding:clamp(1rem,4vw,3rem);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--overlay-faint)}
+.diagnostic-next h1{font-size:clamp(2rem,4vw,3.2rem);line-height:1.12}.diagnostic-next p{font-size:1.15rem;line-height:1.8;color:var(--text-secondary)}
+@media(max-width:680px){
+  .room-menu-trigger{min-height:44px;min-width:64px}.room-menu-trigger span{margin-left:.3rem}
+  .topbar{grid-template-columns:35px minmax(0,1fr) auto}.context-select{flex:1;max-width:50%}.context-select select{width:100%}
+  .context-chevron{display:none}.writer-toolbar{align-items:flex-start;gap:.4rem}.writer-toolbar-actions{gap:.4rem}
+  .writer-toolbar-actions .quiet-action{min-height:44px}.writer-view-switch button{min-height:44px}
+  .writer-toolbar-actions .save-state{flex-basis:100%;justify-content:flex-end;font-size:.75rem}
+  .writer-location{min-width:90px}.mini-button,.icon-button{min-width:44px;min-height:44px}
+  .sync-notice,.draft-recovery{margin:.75rem .65rem;padding:1rem}.form-actions .button{min-height:44px}
+  .modal-dialog{margin:auto .5rem;width:calc(100% - 1rem);max-height:calc(100dvh - 2rem);border-radius:var(--radius-lg)}
+  .modal-dialog input,.modal-dialog textarea,.modal-dialog select{font-size:16px}
+  .legal-footer{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+  .primary-nav{padding-bottom:env(safe-area-inset-bottom);height:calc(66px + env(safe-area-inset-bottom))}
+}
+@media(max-width:680px){
+  .writer-toolbar-actions .save-state{display:flex}
+  .primary-nav .nav-label{min-width:0;text-align:center}
+  .primary-nav .nav-label b{white-space:nowrap;font-size:.72rem}
+  .primary-nav button .nav-mark{width:16px;height:3px;flex:none}
+  .primary-nav button{min-width:0;flex:1 1 0}
+}

@@ -45,6 +45,8 @@ function loadPickerApi() {
 
 export default function GoogleFountainPicker({
   onOpened,
+  onBeforeShow = () => {},
+  onFinished = () => {},
   className = 'button secondary',
   label = 'Open Fountain from Drive',
 }) {
@@ -77,6 +79,7 @@ export default function GoogleFountainPicker({
 
           if (action === window.google.picker.Action.CANCEL) {
             setBusy(false);
+            onFinished();
             return;
           }
 
@@ -101,13 +104,16 @@ export default function GoogleFountainPicker({
           } catch (error) {
             setMessage(error.message || 'Could not open that Fountain file.');
           } finally {
+            onFinished();
             setBusy(false);
           }
         })
         .build();
 
+      onBeforeShow();
       picker.setVisible(true);
     } catch (error) {
+      onFinished();
       setMessage(error.message || 'Could not open Google Picker.');
       setBusy(false);
     }

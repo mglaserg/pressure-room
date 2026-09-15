@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "checks": [
+    "desktop editor",
+    "autosave persisted",
+    "focus mode",
+    "dialog Escape and focus return",
+    "browser ZIP export",
+    "copy import",
+    "reload preservation",
+    "390px layout without horizontal overflow",
+    "mobile dialog containment",
+    "progressive diagnosis",
+    "stale browser scene rejected",
+    "conflicting draft remains paused",
+    "draft download and load saved version"
+  ],
+  "pageErrors": [],
+  "date": "2026-09-15",
+  "browser": "Chromium 153, headless",
+  "viewports": [
+    "1440x1000",
+    "390x844"
+  ],
+  "package_interoperability": "Browser export imported by Python; Python export with snapshot decoded by browser module"
+}

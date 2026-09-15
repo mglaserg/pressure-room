@@ -1,6 +1,6 @@
-# Pressure Room v0.6.1
+# Pressure Room v0.7.0
 
-Security and reliability cleanup (2026-09-14): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local and Google Drive modes; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
+Security, recovery and design follow-up (2026-09-15): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local and Google Drive modes; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
 
 **Stories reveal character under pressure.**
 
@@ -30,6 +30,10 @@ Pressure Room keeps only four top-level areas:
 ## Highlights
 
 ### Write
+- focus mode with scene selection and visible save status
+- Room menu for paths, storage, new stories and Export & backup
+- browser-local portable backups with copy import and explicit restore
+- durable Drive upload intents, conflict recovery and conditional writes
 - Edit / Page toggle over the same screenplay source
 - typeset Fountain preview with screenplay spacing and dialogue indentation
 - paper-like screenplay canvas

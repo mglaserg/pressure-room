@@ -55,13 +55,19 @@ def fountain(payload: dict) -> str:
 
 
 def package_bytes(payload: dict) -> bytes:
+    data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    if len(data) > MAX_PROJECT_BYTES:
+        raise ValueError("Project JSON exceeds 32 MiB. Export individual sections or reduce snapshot history.")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("project.json", json.dumps(payload, ensure_ascii=False, indent=2))
+        zf.writestr("project.json", data)
         zf.writestr("story-packet.md", project_markdown(payload))
         zf.writestr("screenplay.fountain", fountain(payload))
-        zf.writestr("README.txt", "Pressure Room portable project package. Import this file from Pressure Room's Share menu.\n")
-    return buf.getvalue()
+        zf.writestr("README.txt", "Pressure Room portable project package. Import this file from Pressure Room's Export & backup menu.\n")
+    raw = buf.getvalue()
+    if len(raw) > MAX_PACKAGE_BYTES:
+        raise ValueError("Project package exceeds 10 MiB. Reduce snapshot history before exporting.")
+    return raw
 
 
 MAX_PACKAGE_BYTES = 10 * 1024 * 1024

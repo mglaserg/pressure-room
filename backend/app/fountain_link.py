@@ -66,8 +66,23 @@ def parse_fountain(text: str, filename: str) -> dict:
     }
 
 
+def linked_payload(project_id: str) -> dict:
+    payload=db.project_payload(project_id)
+    source=payload.get('project_source') or {}
+    branch_id=source.get('branch_id')
+    if not branch_id:
+        main=next((b for b in payload['branches'] if b['is_main']),None)
+        branch_id=main['id'] if main else None
+    if not any(b['id']==branch_id for b in payload['branches']):
+        raise HTTPException(409,'The linked path was removed. Choose a path in Storage settings.')
+    payload['episodes']=[ep for ep in payload['episodes'] if ep['branch_id']==branch_id]
+    ids={ep['id'] for ep in payload['episodes']}
+    payload['scenes']=[scene for scene in payload['scenes'] if scene['episode_id'] in ids]
+    return payload
+
+
 def _screenplay_material(project_id: str) -> str:
-    payload = db.project_payload(project_id)
+    payload = linked_payload(project_id)
     chunks: list[str] = []
     for episode in payload.get("episodes", []):
         episode_scenes = [
@@ -87,7 +102,7 @@ def screenplay_hash(project_id: str) -> str:
 
 
 def _render_linked_fountain(project_id: str, preamble: str) -> str:
-    payload = db.project_payload(project_id)
+    payload = linked_payload(project_id)
     out: list[str] = []
     preamble = (preamble or "").rstrip()
 
@@ -146,7 +161,10 @@ def open_from_drive(session: dict, file_id: str) -> dict:
     if not name.lower().endswith(".fountain"):
         raise HTTPException(400, "Choose a .fountain file from Google Drive.")
 
+    source_etag = drive_store.file_revision(session, file_id)
     text = drive_store.download_text(session, file_id)
+    if drive_store.file_revision(session, file_id) != source_etag:
+        raise HTTPException(409,"Fountain file changed while opening. Try again.")
     parsed = parse_fountain(text, name)
     ts = db.now_iso()
 
@@ -216,6 +234,8 @@ def open_from_drive(session: dict, file_id: str) -> dict:
     db.upsert_project_source(
         project_id,
         source_kind="fountain",
+        branch_id=branch_id,
+        source_etag=source_etag,
         drive_file_id=file_id,
         drive_file_name=name,
         drive_parent_id=parent_id,
@@ -229,7 +249,7 @@ def open_from_drive(session: dict, file_id: str) -> dict:
     )
 
     # Creates the companion sidecar, preferably beside the Fountain file.
-    drive_store.save_project(session, project_id)
+    # The API queues the companion sidecar in the same local transaction.
 
     return {
         "project_id": project_id,
@@ -251,13 +271,27 @@ def sync_to_fountain(session: dict, project_id: str) -> dict | None:
         return {"updated": False, "file_name": source.get("drive_file_name", "")}
 
     text = _render_linked_fountain(project_id, source.get("fountain_preamble", ""))
-    drive_store.upload_text(session, source["drive_file_id"], text)
-    meta = drive_store.file_metadata(session, source["drive_file_id"])
+    current_etag=drive_store.file_revision(session,source['drive_file_id'])
+    expected=source.get('source_etag')
+    if not expected:
+        meta=drive_store.file_metadata(session,source['drive_file_id'])
+        if not source.get('source_modified_time') or meta.get('modifiedTime')!=source['source_modified_time']:
+            raise HTTPException(409,'The linked Fountain file changed. Download your screenplay and open the current Drive file separately.')
+        expected=current_etag
+    if current_etag!=expected:
+        # Handle a timed-out successful write without overwriting a later edit.
+        remote=drive_store.download_text(session,source['drive_file_id'])
+        after=drive_store.file_revision(session,source['drive_file_id'])
+        if remote!=text or after!=current_etag:
+            raise HTTPException(409,'The linked Fountain file changed elsewhere. Your story is saved; download a screenplay copy or open the current file separately.')
+        new_etag=current_etag
+    else:
+        new_etag=drive_store.upload_text(session,source['drive_file_id'],text,expected)
 
     db.upsert_project_source(
         project_id,
         screenplay_hash=current_hash,
-        source_modified_time=str(meta.get("modifiedTime", "")),
+        source_etag=new_etag,
         updated_at=db.now_iso(),
     )
 
@@ -265,3 +299,28 @@ def sync_to_fountain(session: dict, project_id: str) -> dict | None:
         "updated": True,
         "file_name": source.get("drive_file_name", ""),
     }
+
+
+def reload_linked_fountain(session: dict, project_id: str) -> None:
+    """Use the current external screenplay after a recovery story was preserved."""
+    source=db.get_project_source(project_id)
+    if not source:
+        return
+    etag=drive_store.file_revision(session,source['drive_file_id'])
+    text=drive_store.download_text(session,source['drive_file_id'])
+    if drive_store.file_revision(session,source['drive_file_id'])!=etag:
+        raise HTTPException(409,'Fountain changed while reloading. Your recovery story is preserved.')
+    parsed=parse_fountain(text,source['drive_file_name'])
+    branch_id=source.get('branch_id') or next((b['id'] for b in db.get_branches(project_id) if b['is_main']),None)
+    if not branch_id:
+        raise HTTPException(409,'Choose a path before reloading Fountain.')
+    with db.transaction():
+        # The previous full story remains in its independent recovery copy.
+        for ep in db.rows('SELECT id FROM episodes WHERE branch_id=?',[branch_id]):
+            db.delete('episodes',ep['id'])
+        ts=db.now_iso()
+        episode=db.insert('episodes',{'project_id':project_id,'branch_id':branch_id,'number':1,'title':'Screenplay','status':'Draft','created_at':ts,'updated_at':ts})
+        for index,scene in enumerate(parsed['scenes'],1):
+            db.insert('scenes',{'episode_id':episode,'scene_no':index,'slugline':scene['slugline'],'screenplay_text':scene['screenplay_text'],'created_at':ts,'updated_at':ts})
+        db.upsert_project_source(project_id,branch_id=branch_id,source_etag=etag,fountain_preamble=parsed['preamble'])
+        db.upsert_project_source(project_id,screenplay_hash=screenplay_hash(project_id))

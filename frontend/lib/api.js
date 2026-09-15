@@ -1,3 +1,4 @@
+import {TABLES, encodeProject, decodeProject, copyProject, validateProject} from './portable.mjs';
 export const API = '/api';
 const REQUEST_TIMEOUT_MS = 65000;
 const STORAGE_MODE_KEY = 'pressure-room-storage-mode';
@@ -43,6 +44,7 @@ function blankDb() {
     bills: [],
     causal_links: [],
     snapshots: [],
+    story_notes: [],
   };
 }
 
@@ -178,7 +180,7 @@ function workspace(db, projectId) {
   const bills = db.bills.filter(b => b.project_id === projectId);
   const causal_links = db.causal_links.filter(l => episodeIds.has(l.episode_id));
   const snapshots = db.snapshots.filter(s => s.project_id === projectId).map(({payload, ...rest}) => rest);
-  return {project, branches, episodes, scenes, characters, bills, causal_links, snapshots};
+  return {project, branches, episodes, scenes, characters, bills, causal_links, snapshots, story_notes:db.story_notes.filter(n=>n.project_id===projectId)};
 }
 
 function snapshotPayload(db, projectId) {
@@ -191,6 +193,7 @@ function snapshotPayload(db, projectId) {
     characters: ws.characters,
     bills: ws.bills,
     causal_links: ws.causal_links,
+    story_notes: ws.story_notes,
   });
 }
 
@@ -208,6 +211,7 @@ function restoreProjectFromPayload(db, payload) {
   db.causal_links = db.causal_links.filter(l => !existingEpisodeIds.has(l.episode_id));
   db.characters = db.characters.filter(c => c.project_id !== projectId);
   db.bills = db.bills.filter(b => b.project_id !== projectId);
+  db.story_notes = db.story_notes.filter(n => n.project_id !== projectId);
 
   const ts = nowIso();
 
@@ -219,12 +223,19 @@ function restoreProjectFromPayload(db, payload) {
   for (const b of incoming.bills || []) db.bills.push({...b, updated_at: ts, version: Number(b.version || 0) + 1});
   for (const l of incoming.causal_links || []) db.causal_links.push({...l, version: Number(l.version || 0) + 1});
 
+  db.story_notes.push(...(incoming.story_notes||[]));
   touchProject(db, projectId);
   writeDb(db);
   return projectId;
 }
 
 export async function localApi(path, options = {}) {
+  const run=()=>localRequest(path,options);
+  if (typeof navigator!=='undefined' && navigator.locks) return navigator.locks.request('pressure-room-db',run);
+  return run();
+}
+
+async function localRequest(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   const db = readDb();
   const [pathname] = path.split('?');
@@ -500,12 +511,18 @@ export async function localApi(path, options = {}) {
     if (!db[table]) throw new Error('Unsupported table');
     const row = db[table].find(item => item.id === id);
     if (!row) throw new Error('Object not found');
-    Object.assign(row, parseJsonBody(options));
+    const expected=options.headers?.['X-Record-Version'];
+    if(expected!=null && Number(expected)!==Number(row.version||1)) {
+      const error=new Error('This scene changed in another tab. Download your draft before loading the latest scene.');error.status=409;throw error;
+    }
+    const data=parseJsonBody(options);
+    if(Object.keys(data).some(k=>['id','project_id','episode_id','created_at','version','__proto__','constructor','prototype'].includes(k)))throw Error('Record metadata cannot be edited.');
+    Object.assign(row,data);
     touchVersion(row);
     const projectId = findProjectIdForTable(db, table, id);
     if (projectId) touchProject(db, projectId);
     writeDb(db);
-    return {ok: true};
+    return {ok: true, record_version:row.version};
   }
 
   if (patchMatch && method === 'DELETE') {
@@ -541,18 +558,47 @@ export async function localApi(path, options = {}) {
     return {ok: true};
   }
 
-  if (pathname.startsWith('/projects/') && pathname.includes('/export/')) {
-    throw new Error('Export is currently available only in Google Drive mode.');
+  const exportMatch=pathname.match(/^\/projects\/([^/]+)\/export\/package$/);
+  if(exportMatch){
+    const projectId=exportMatch[1];
+    const payload={...snapshotPayload(db,projectId),format:'pressure-room',format_version:2,
+      story_notes:db.story_notes.filter(n=>n.project_id===projectId),
+      snapshots:db.snapshots.filter(n=>n.project_id===projectId)};
+    return new Response(encodeProject(payload),{headers:{'Content-Type':'application/zip'}});
   }
-
-  if (pathname === '/import' && method === 'POST') {
-    throw new Error('Import is currently available only in Google Drive mode.');
+  if(pathname==='/import'&&method==='POST'){
+    const file=options.body.get('file');
+    if(!file||file.size>10*1024*1024)throw Error('Choose a backup no larger than 10 MiB.');
+    let incoming=decodeProject(new Uint8Array(await file.arrayBuffer()));
+    const mode=new URLSearchParams(path.split('?')[1]).get('mode')||'copy';
+    if(mode==='copy')incoming=copyProject(incoming,uid);
+    else if(mode!=='replace')throw Error('Unsupported import mode.');
+    const pid=incoming.project.id;
+    // Keep a recovery snapshot of the old story before a deliberate replacement.
+    const retained=db.projects.some(p=>p.id===pid)?{id:uid(),project_id:pid,label:'Before backup restore',created_at:nowIso(),payload:snapshotPayload(db,pid)}:null;
+    const oldEpisodes=new Set(db.episodes.filter(e=>e.project_id===pid).map(e=>e.id));
+    const otherIds=new Set([...db.projects,...TABLES.flatMap(t=>db[t]||[]),...db.snapshots]
+      .filter(r=>r.project_id!==pid&&r.id!==pid&&!oldEpisodes.has(r.episode_id)).map(r=>r.id));
+    if([incoming.project,...TABLES.flatMap(t=>incoming[t]),...incoming.snapshots].some(r=>otherIds.has(r.id)))throw Error('Backup IDs collide with another story. Import as a copy.');
+    db.snapshots=db.snapshots.filter(s=>s.project_id!==pid);
+    db.snapshots.push(...incoming.snapshots,...(retained?[retained]:[]));
+    restoreProjectFromPayload(db,incoming);
+    return {project_id:pid};
   }
 
   throw new Error(`Unsupported local request: ${method} ${pathname}`);
 }
 
+const revisions=new Map();
+const owners=new Map();
+export function forgetRevision(projectId){revisions.delete(projectId);}
+
 export async function remoteApi(path, options = {}) {
+  const isWrite=!['GET','HEAD','OPTIONS'].includes(options.method||'GET');
+  const segments=path.split('?')[0].split('/').filter(Boolean);
+  let pid=segments[0]==='projects'?segments[1]:owners.get(segments[1]);
+  if(path.startsWith('/import')&&options.body instanceof FormData)pid=options.projectId;
+  const revision=options.revision||revisions.get(pid);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -563,15 +609,24 @@ export async function remoteApi(path, options = {}) {
       signal: options.signal || controller.signal,
       headers: {
         ...(options.body instanceof FormData ? {} : {'Content-Type': 'application/json'}),
+        ...(isWrite&&revision?{'X-Project-Revision':revision}:{}),
         ...(options.headers || {}),
       },
     });
     if (!res.ok) {
       const detail = await res.json().catch(() => ({detail: res.statusText}));
-      throw new Error(detail.detail || `Request failed (${res.status})`);
+      const message=detail.detail?.message||detail.detail||`Request failed (${res.status})`;
+      const error=new Error(message);error.status=res.status;error.code=detail.detail?.code;throw error;
     }
     const type = res.headers.get('content-type') || '';
-    return type.includes('application/json') ? res.json() : res;
+    if(!type.includes('application/json'))return res;
+    const data=await res.json();
+    if(data.project){
+      pid=data.project.id;
+      for(const table of ['projects',...TABLES,'snapshots'])for(const row of table==='projects'?[data.project]:(data[table]||[]))owners.set(row.id,pid);
+    }
+    if(data.revision&&(data.project_id||pid))revisions.set(data.project_id||pid,data.revision);
+    return data;
   } catch (error) {
     if (error?.name === 'AbortError') {
       throw new Error('Pressure Room API did not respond in time. Your request may still have completed; check the saved story before retrying.');

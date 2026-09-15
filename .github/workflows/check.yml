@@ -1,5 +1,5 @@
 name: Verify Pressure Room
-on: [push, pull_request]
+on: [push, pull_request, workflow_call]
 permissions:
   contents: read
 jobs:
@@ -19,6 +19,7 @@ jobs:
       - run: uv sync --project backend --locked
       - run: uv run --project backend pytest backend/tests
       - run: uv export --project backend --locked --no-dev --no-emit-project -o backend/requirements.lock && git diff --exit-code backend/requirements.lock
+      - run: uvx pip-audit==2.10.1 -r backend/requirements.lock
       - run: npm ci
         working-directory: frontend
       - run: npm test

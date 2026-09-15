@@ -1,11 +1,18 @@
 // Serialize saves per scene, including across component remounts.
 const chains = new Map();
+const activeSavers = new Set();
+export async function flushDrafts(){
+  const savers=[...activeSavers];
+  await Promise.all(savers.map(s=>s.flush()));
+  if(savers.some(s=>s.isPending()))throw Error('A scene draft has not been saved. Download its recovery draft or resolve it before continuing.');
+}
 
 export function createDraftSaver({key, storage, send, onState = () => {}}) {
   let pending = null;
   let revision = 0;
   let timer;
   let cached = true;
+  let paused = false;
 
   function recover() {
     try {
@@ -21,28 +28,33 @@ export function createDraftSaver({key, storage, send, onState = () => {}}) {
     pending = {...payload};
     try { storage.setItem(key, JSON.stringify(pending)); cached = true; }
     catch { cached = false; }
-    onState(cached ? 'saving' : 'uncached');
+    onState(paused ? 'conflict' : cached ? 'saving' : 'uncached');
     clearTimeout(timer);
-    timer = setTimeout(flush, 700);
+    if(!paused)timer = setTimeout(flush, 700);
   }
 
   function flush() {
     clearTimeout(timer);
-    if (!pending) return chains.get(key) || Promise.resolve();
+    if (paused || !pending) return chains.get(key) || Promise.resolve();
     const payload = pending;
     const version = revision;
     const serialized = JSON.stringify(payload);
     pending = null;
     const job = (chains.get(key) || Promise.resolve()).then(async () => {
       try {
-        await send(payload);
+        const result=await send(payload);
+        if(result?.sync && !['synced','local'].includes(result.sync.status)){
+          if(version===revision)onState(result.sync.status);
+          return;
+        }
         // An older response must never erase a newer recoverable draft.
         try { if (storage.getItem(key) === serialized) storage.removeItem(key); } catch {}
         if (version === revision) onState('saved');
-      } catch {
+      } catch (error) {
         if (version === revision) {
           pending = payload;
-          onState(cached ? 'offline' : 'uncached');
+          if(error.status===409)paused=true;
+          onState(error.status===409?'conflict':cached?'offline':'uncached');
         }
       }
     });
@@ -51,5 +63,9 @@ export function createDraftSaver({key, storage, send, onState = () => {}}) {
     return job;
   }
 
-  return {recover, update, flush, isPending: () => Boolean(pending || chains.has(key))};
+  const api={recover,update,flush,pause:()=>{paused=true;clearTimeout(timer)},isPending:()=>Boolean(pending||chains.has(key)),
+    discard:()=>{clearTimeout(timer);pending=null;paused=false;revision+=1;try{storage.removeItem(key)}catch{}},
+    release:()=>{activeSavers.delete(api);return flush();}};
+  activeSavers.add(api);
+  return api;
 }

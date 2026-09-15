@@ -76,7 +76,7 @@
 @media(max-width:680px){
   .writer-toolbar{align-items:center}
   .writer-toolbar-actions{gap:.45rem}
-  .save-state{display:none}
+  .save-state{display:flex}
   .writer-view-switch button{padding:.38rem .55rem}
   .screenplay-page-frame{margin:0 -.05rem;padding:0}
   .screenplay-page{width:100%;min-height:70vh;padding:1.35rem 1rem 2rem;font-size:11.5pt}

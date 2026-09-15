@@ -6,6 +6,7 @@ const TABS=[['mri','Story MRI','Shape'],['pressure','Pressure Lab','Moves'],['qu
 
 export default function DiagnoseView({episode}) {
   const [section,setSection]=useState('mri');
+  const [details,setDetails]=useState(false);
   const [data,setData]=useState(null);
   const [error,setError]=useState('');
   useEffect(()=>{
@@ -14,10 +15,11 @@ export default function DiagnoseView({episode}) {
   },[episode?.id]);
   if(!episode)return <div className="empty-state"><div className="empty-orbit"><span>P</span><i/><span>R</span></div><h2>Create an episode to diagnose.</h2></div>;
   return <div className="focus-page">
-    <div className="subnav diagnose-subnav">{TABS.map(([id,label,note])=><button key={id} className={section===id?'active':''} onClick={()=>setSection(id)}><b>{label}</b><small>{note}</small></button>)}</div>
+    {data&&<section className="diagnostic-next"><span className="eyebrow">Your next revision</span><h1>One question to take back to the page.</h1><p>{data.questions?.[0]||'What changes because of the character’s choice in this episode?'}</p><button className="button secondary" aria-expanded={details} onClick={()=>setDetails(v=>!v)}>{details?'Hide full diagnosis':'Explore the full diagnosis'}</button></section>}
+    {(details||!data)&&<><div className="subnav diagnose-subnav">{TABS.map(([id,label,note])=><button key={id} className={section===id?'active':''} onClick={()=>setSection(id)}><b>{label}</b><small>{note}</small></button>)}</div>
     <section className="focus-card diagnose-card">
       {error?<div className="empty-state compact-empty"><h2>Diagnostics could not load.</h2><p className="muted">{error}</p></div>:!data?<DiagnosticLoading/>:section==='mri'?<MRI rows={data.mri}/>:section==='pressure'?<Pressure moves={data.pressure_moves}/>:<Questions questions={data.questions}/>}
-    </section>
+    </section></>}
   </div>
 }
 

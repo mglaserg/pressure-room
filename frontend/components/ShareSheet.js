@@ -1,69 +1,44 @@
 'use client';
-import {useRef, useState} from 'react';
+import {useRef,useState} from 'react';
 import Modal from './Modal';
-import {API, api} from '@/lib/api';
+import {api,isLocalMode} from '@/lib/api';
+import {downloadBlob} from '@/lib/portable.mjs';
+import {flushDrafts} from '@/lib/draft-saver.mjs';
 
-export default function ShareSheet({open, onClose, project, drive, onImported}) {
-  const input = useRef(null);
-  const [mode, setMode] = useState('copy');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  if (!project) return null;
-
-  async function importFile(file) {
-    if (!file) return;
-    setBusy(true); setMessage('');
-    const body = new FormData(); body.append('file', file);
-    try {
-      const result = await api(`/import?mode=${mode}`, {method:'POST', body});
-      setMessage(drive?.connected ? 'Project imported and saved to Google Drive.' : 'Project imported.');
-      await onImported?.(result.project_id);
-    } catch (e) { setMessage(e.message); }
-    finally { setBusy(false); }
+export default function ShareSheet({open,onClose,project,drive,onImported}) {
+  const input=useRef(null);
+  const [mode,setMode]=useState('copy'),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  const local=isLocalMode();
+  async function exportFile(kind){
+    if(!project)return;
+    setBusy(true);setMessage('');
+    try{
+      await flushDrafts();
+      const response=await api(`/projects/${project.id}/export/${kind}`);
+      downloadBlob(await response.arrayBuffer(),`${project.title.replace(/[^\p{L}\p{N} _-]/gu,'_')}.${kind==='package'?'pressureroom':kind==='markdown'?'md':kind}`,response.headers.get('content-type'));
+      setMessage('Backup downloaded. Keep it somewhere separate from this browser.');
+    }catch(e){setMessage(e.message)}finally{setBusy(false)}
   }
-
-  async function syncDrive() {
-    setBusy(true); setMessage('');
-    try {
-      const result = await api('/google/sync', {method:'POST'});
-      setMessage(`Google Drive synced · ${result.pulled||0} pulled · ${result.pushed||0} pushed.`);
-    } catch (e) { setMessage(e.message); }
-    finally { setBusy(false); }
+  async function importFile(file){
+    if(!file)return;
+    if(mode==='replace'&&!window.confirm('Restore the story contained in this backup? Download a current backup first if you want an independent copy.'))return;
+    setBusy(true);setMessage('');
+    try{
+      await flushDrafts();
+      const body=new FormData();body.append('file',file);
+      const result=await api(`/import?mode=${mode}`,{method:'POST',body,projectId:project?.id});
+      await onImported(result.project_id);
+    }catch(e){setMessage(e.message)}finally{setBusy(false);if(input.current)input.current.value=''}
   }
-
-  const exports = [
-    ['Pressure Room project', 'package', '.pressureroom', 'The complete editable room'],
-    ['Story packet', 'pdf', 'PDF', 'A polished overview for another writer'],
-    ['Structured notes', 'markdown', 'MD', 'Portable story architecture'],
-    ['Screenplay', 'fountain', 'FOUNTAIN', 'For Fountain-compatible writing tools'],
-  ];
-
-  return (
-    <Modal open={open} onClose={onClose} title="Share the room">
-      {drive?.connected&&<>
-        <div className="eyebrow">Google Drive</div>
-        <p className="modal-lead">This story saves automatically to your Pressure Room folder{drive.email?` as ${drive.email}`:''}.</p>
-        <button className="button secondary full" disabled={busy} onClick={syncDrive}>{busy?'Syncing…':'Sync from Google Drive now'}</button>
-        <div className="section-divider"><span>export a copy</span></div>
-      </>}
-      <p className="modal-lead">Send the whole story to another writer, or hand them only the view they need.</p>
-      <div className="export-list">
-        {exports.map(([label,kind,format,note]) => (
-          <a className="export-row" key={kind} href={`${API}/projects/${project.id}/export/${kind}`}>
-            <span className="export-format">{format}</span><div><strong>{label}</strong><span>{note}</span></div><b>↓</b>
-          </a>
-        ))}
-      </div>
-      <div className="section-divider"><span>or bring another room in</span></div>
-      <div className="eyebrow">Import a project</div>
-      <div className="segmented compact">
-        <button className={mode==='copy'?'active':''} onClick={()=>setMode('copy')}>Import as copy</button>
-        <button className={mode==='replace'?'active':''} onClick={()=>setMode('replace')}>Restore / replace</button>
-      </div>
-      <input ref={input} type="file" accept=".pressureroom,.zip" hidden onChange={e=>importFile(e.target.files?.[0])}/>
-      <button className="button secondary full" disabled={busy} onClick={()=>input.current?.click()}>{busy?'Importing…':'Choose .pressureroom file'}</button>
-      {message && <p className="form-message">{message}</p>}
-      <p className="microcopy">Google Drive is the cloud source of truth; portable exports remain yours to keep and share anywhere.</p>
-    </Modal>
-  );
+  const exports=local?[['Full story backup','package','Includes scenes, structure and snapshots']]:[
+    ['Full story backup','package','The complete editable story and snapshots'],['Story packet','pdf','A readable overview'],['Structured notes','markdown','Portable story architecture'],['Screenplay','fountain','A Fountain copy']];
+  return <Modal open={open} onClose={onClose} title="Export & backup">
+    <p className="modal-lead">{local?'This story lives in this browser. A downloaded backup protects it if the browser or device is lost.':'Download an independent copy of your story. Google Drive sync and downloaded backups are separate.'}</p>
+    {project&&<div className="export-list">{exports.map(([label,kind,note])=><button key={kind} disabled={busy} className="export-row" onClick={()=>exportFile(kind)}><span className="export-format">↓</span><div><strong>{label}</strong><span>{note}</span></div></button>)}</div>}
+    <div className="section-divider"><span>Restore a backup</span></div>
+    <div className="segmented"><button aria-pressed={mode==='copy'} className={mode==='copy'?'active':''} onClick={()=>setMode('copy')}>Import as a copy</button><button aria-pressed={mode==='replace'} className={mode==='replace'?'active':''} onClick={()=>setMode('replace')}>Restore original story</button></div>
+    <input ref={input} type="file" accept=".pressureroom,.zip" hidden onChange={e=>importFile(e.target.files?.[0])}/>
+    <button className="button secondary full" disabled={busy} onClick={()=>input.current?.click()}>{busy?'Working…':'Choose backup file'}</button>
+    {message&&<p role="status" className="form-message">{message}</p>}
+  </Modal>
 }

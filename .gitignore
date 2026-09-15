@@ -29,3 +29,6 @@ frontend/.env.local
 *.db-shm
 *.db-wal
 *.bak
+
+# Local browser QA outputs
+qa/

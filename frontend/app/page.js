@@ -7,6 +7,8 @@ import DiagnoseView from '@/components/DiagnoseView';
 import HelpView from '@/components/HelpView';
 import ShareSheet from '@/components/ShareSheet';
 import Modal from '@/components/Modal';
+import RoomMenu from '@/components/RoomMenu';
+import SyncNotice from '@/components/SyncNotice';
 import GoogleFountainPicker from '@/components/GoogleFountainPicker';
 
 const NAV = [
@@ -24,6 +26,7 @@ export default function Home(){
   const [branchId,setBranchId]=useState('');
   const [episodeId,setEpisodeId]=useState('');
   const [sceneId,setSceneId]=useState('');
+  const [roomMenu,setRoomMenu]=useState(false);
   const [share,setShare]=useState(false);
   const [newStory,setNewStory]=useState(false);
   const [error,setError]=useState('');
@@ -144,7 +147,7 @@ export default function Home(){
   const showDriveEmpty = storageMode==='drive' && drive?.connected && projectsReady && projects.length===0 && !workspace;
   const showLocalEmpty = storageMode==='local' && projectsReady && projects.length===0 && !workspace;
 
-  if(error)return <main className="boot boot-error">
+  if(error&&!workspace)return <main className="boot boot-error">
     <BrandMark large/>
     <div className="boot-copy"><span className="eyebrow">The room is closed</span><h1>Pressure Room</h1><p>{error}</p><p className="muted">The interface loaded, but it could not reach the story service.</p></div>
     <div className="boot-actions"><button className="button" onClick={()=>{setError('');boot().catch(e=>setError(e.message))}}>Try again</button><a className="button secondary" href="/api/health" target="_blank" rel="noreferrer">API health</a></div>
@@ -182,6 +185,7 @@ export default function Home(){
         <button className="button secondary" disabled={driveImportBusy} onClick={()=>driveImport.current?.click()}>{driveImportBusy?'Importing…':'Import Pressure Room project'}</button>
       </div>
     </main>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
@@ -196,9 +200,12 @@ export default function Home(){
       </div>
       <div className="boot-actions">
         <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
+        <button className="button secondary" onClick={()=>setShare(true)}>Restore a backup</button>
         {drive?.configured&&<button className="button secondary" onClick={chooseDriveMode}>Use Google Drive instead</button>}
       </div>
     </main>
+    <ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
@@ -214,34 +221,27 @@ export default function Home(){
       <div className="context-bar" aria-label="Story context">
         <label className="context-select"><span>Story</span><select value={projectId} onChange={async e=>{setProjectId(e.target.value);await loadWorkspace(e.target.value)}}>{projects.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
         <span className="context-chevron">/</span>
-        <label className="context-select branch-context"><span>Path</span><select value={branchId} onChange={e=>setBranchId(e.target.value)}>{workspace.branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-        <span className="context-chevron">/</span>
         {branchEpisodes.length?<label className="context-select"><span>Episode</span><select value={episode?.id||''} onChange={e=>{setEpisodeId(e.target.value);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}</select></label>:<button className="context-add" onClick={createEpisode}>＋ Episode</button>}
       </div>
 
-      <div className="top-actions">
-        {storageMode==='drive'&&drive?.connected&&<form action="/api/google/disconnect" method="post"><button className="quiet-action" title={drive.email||'Google Drive'}>Disconnect Drive</button></form>}
-        {storageMode==='drive'&&workspace?.project_source?.source_kind==='fountain'&&<span className="quiet-action" title={workspace.project_source.drive_file_name||'Linked Fountain'}>Fountain ↔</span>}
-        {storageMode==='drive'&&drive?.connected&&drive?.picker_configured&&<GoogleFountainPicker className="quiet-action" label="Open Fountain" onOpened={async result=>await loadProjects(result.project_id)}/>}
-        {storageMode==='local'&&<span className="quiet-action" title="Saved in this browser on this device">This device</span>}
-        {storageMode==='local'&&drive?.configured&&<button className="quiet-action" onClick={chooseDriveMode}>Use Drive</button>}
-        <button className="quiet-action" onClick={()=>setNewStory(true)}>＋ Story</button>
-        {storageMode==='drive'&&<button className="button compact" onClick={()=>setShare(true)}>Share</button>}
-      </div>
+      <div className="top-actions"><button className="button compact room-menu-trigger" aria-haspopup="dialog" onClick={()=>setRoomMenu(true)}>Room <span aria-hidden="true">☰</span></button></div>
     </header>
 
     <nav className="primary-nav" aria-label="Primary workspace">
       {NAV.map(([id,label,sub])=><button key={id} aria-current={mode===id?'page':undefined} className={mode===id?'active':''} onClick={()=>setMode(id)}><span className="nav-mark"/><span className="nav-label"><b>{label}</b><small>{sub}</small></span></button>)}
     </nav>
 
+    {error&&<div className="sync-notice" role="alert"><p>{error}</p><button className="button secondary" onClick={()=>setError('')}>Dismiss</button></div>}
+    <SyncNotice workspace={workspace} onResolved={id=>loadProjects(id)} onBackup={()=>setShare(true)}/>
     <div className="workspace">
-      {mode==='write'&&<WriteView onSceneSaved={(id,data)=>setWorkspace(ws=>ws?{...ws,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
+      {mode==='write'&&<WriteView onSceneSaved={(id,data,result)=>setWorkspace(ws=>ws?{...ws,revision:result.revision||ws.revision,sync:result.sync||ws.sync,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
       {mode==='structure'&&<StructureView workspace={workspace} project={project} branch={branch} episode={episode} reload={reload}/>}
       {mode==='diagnose'&&<DiagnoseView episode={episode}/>}
       {mode==='help'&&<HelpView/>}
     </div>
 
-    {storageMode==='drive'&&<ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
+    {<ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </main>
 }

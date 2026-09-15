@@ -14,6 +14,8 @@ from pydantic import BaseModel
 
 from . import db, drive_store, fountain_link
 from .request_limits import RequestLimitMiddleware
+from . import workspace_ops
+from .workspace_ops import workspace_request, check_revision
 from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions
 from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes, MAX_PACKAGE_BYTES
 
@@ -24,7 +26,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.6.1", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.7.0", lifespan=lifespan)
 app.add_middleware(RequestLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -84,6 +86,8 @@ PATCH_FIELDS = {
 
 
 def _prepare(request: Request) -> dict | None:
+    if workspace_ops._ACTIVE.get() is not False:
+        return workspace_ops._ACTIVE.get()
     if not drive_store.enabled():
         # Browser-local mode does not need the server database. Public deployments
         # must never fall back to sharing one anonymous SQLite workspace.
@@ -97,18 +101,17 @@ def _prepare(request: Request) -> dict | None:
 
 
 def _save(session: dict | None, project_id: str | None) -> None:
+    if project_id:
+        workspace_ops.changed(project_id)
     if session and project_id:
-        # Save the rich Pressure Room sidecar first so story work is never lost.
         drive_store.save_project(session, project_id)
-        # Only screenplay-affecting changes rewrite a linked Fountain file.
-        fountain_link.sync_to_fountain(session, project_id)
 
 
 @app.get("/api/health")
 def health():
     return {
         "ok": True,
-        "version": "0.6.1",
+        "version": "0.7.0",
         "storage": drive_store.storage_mode(),
         "cache": db.database_backend(),
     }
@@ -142,8 +145,8 @@ def google_callback(request: Request, code: str, state: str):
 
 
 @app.post("/api/google/disconnect")
-def google_disconnect():
-    return drive_store.disconnect_response()
+def google_disconnect(request: Request):
+    return drive_store.disconnect_response(request)
 
 
 @app.post("/api/google/sync")
@@ -161,19 +164,23 @@ def google_picker(request: Request):
 
 
 @app.post("/api/google/fountain/open")
+@workspace_request
 def google_fountain_open(payload: FountainOpenPayload, request: Request):
-    session = drive_store.require_session(request)
-    drive_store.ensure_local(session)
-    return fountain_link.open_from_drive(session, payload.file_id)
+    session = _prepare(request)
+    result = fountain_link.open_from_drive(session, payload.file_id)
+    _save(session,result["project_id"])
+    return result
 
 
 @app.get("/api/projects")
+@workspace_request
 def projects(request: Request):
     _prepare(request)
     return db.get_projects()
 
 
 @app.post("/api/projects")
+@workspace_request
 def create_project(payload: Payload, request: Request):
     session = _prepare(request)
     d = payload.data
@@ -194,6 +201,7 @@ def create_project(payload: Payload, request: Request):
 
 
 @app.get("/api/projects/{project_id}")
+@workspace_request
 def get_workspace(project_id: str, request: Request):
     _prepare(request)
     try:
@@ -203,6 +211,7 @@ def get_workspace(project_id: str, request: Request):
 
 
 @app.patch("/api/{table}/{object_id}")
+@workspace_request
 def patch_object(table: str, object_id: str, payload: Payload, request: Request):
     session = _prepare(request)
     if table not in PATCH_FIELDS:
@@ -213,26 +222,31 @@ def patch_object(table: str, object_id: str, payload: Payload, request: Request)
     project_id = db.project_id_for_object(table, object_id)
     if not project_id:
         raise HTTPException(404, "Record not found")
+    check_revision(request, project_id)
     db.update(table, object_id, payload.data)
     _save(session, project_id)
     return {"ok": True}
 
 
 @app.delete("/api/{table}/{object_id}")
+@workspace_request
 def delete_object(table: str, object_id: str, request: Request):
     session = _prepare(request)
     allowed = {"characters", "episodes", "scenes", "bills", "causal_links", "branches"}
     if table not in allowed:
         raise HTTPException(400, "Unsupported table")
     project_id = db.project_id_for_object(table, object_id)
+    check_revision(request, project_id)
     db.delete(table, object_id)
     _save(session, project_id)
     return {"ok": True}
 
 
 @app.post("/api/projects/{project_id}/characters")
+@workspace_request
 def create_character(project_id: str, payload: Payload, request: Request):
     session = _prepare(request)
+    check_revision(request, project_id)
     ts = db.now_iso()
     d = payload.data
     cid = db.insert(
@@ -257,8 +271,10 @@ def create_character(project_id: str, payload: Payload, request: Request):
 
 
 @app.post("/api/projects/{project_id}/episodes")
+@workspace_request
 def create_episode(project_id: str, payload: Payload, request: Request):
     session = _prepare(request)
+    check_revision(request, project_id)
     d = payload.data
     ts = db.now_iso()
     main_branch = db.one("SELECT id FROM branches WHERE project_id=? AND is_main=1 LIMIT 1", [project_id])
@@ -283,11 +299,13 @@ def create_episode(project_id: str, payload: Payload, request: Request):
 
 
 @app.post("/api/episodes/{episode_id}/scenes")
+@workspace_request
 def create_scene(episode_id: str, payload: Payload, request: Request):
     session = _prepare(request)
     episode = db.one("SELECT project_id FROM episodes WHERE id=?", [episode_id])
     if not episode:
         raise HTTPException(404, "Episode not found")
+    check_revision(request, episode["project_id"])
     d = payload.data
     ts = db.now_iso()
     sid = db.insert(
@@ -318,11 +336,13 @@ def create_scene(episode_id: str, payload: Payload, request: Request):
 
 
 @app.post("/api/episodes/{episode_id}/links")
+@workspace_request
 def create_link(episode_id: str, payload: Payload, request: Request):
     session = _prepare(request)
     episode = db.one("SELECT project_id FROM episodes WHERE id=?", [episode_id])
     if not episode:
         raise HTTPException(404, "Episode not found")
+    check_revision(request, episode["project_id"])
     d = payload.data
     from_id = d.get("from_scene_id")
     to_id = d.get("to_scene_id")
@@ -361,8 +381,10 @@ def create_link(episode_id: str, payload: Payload, request: Request):
 
 
 @app.post("/api/projects/{project_id}/bills")
+@workspace_request
 def create_bill(project_id: str, payload: Payload, request: Request):
     session = _prepare(request)
+    check_revision(request, project_id)
     d = payload.data
     ts = db.now_iso()
     bid = db.insert(
@@ -386,8 +408,10 @@ def create_bill(project_id: str, payload: Payload, request: Request):
 
 
 @app.post("/api/projects/{project_id}/branches/{branch_id}/clone")
+@workspace_request
 def clone_branch(project_id: str, branch_id: str, payload: NamePayload, request: Request):
     session = _prepare(request)
+    check_revision(request, project_id)
     try:
         new_id = db.clone_branch(project_id, branch_id, payload.name)
     except KeyError:
@@ -397,19 +421,23 @@ def clone_branch(project_id: str, branch_id: str, payload: NamePayload, request:
 
 
 @app.post("/api/projects/{project_id}/snapshots")
+@workspace_request
 def create_snapshot(project_id: str, payload: SnapshotPayload, request: Request):
     session = _prepare(request)
+    check_revision(request, project_id)
     snapshot_id = db.create_snapshot(project_id, payload.label)
     _save(session, project_id)
     return {"id": snapshot_id}
 
 
 @app.post("/api/snapshots/{snapshot_id}/restore")
+@workspace_request
 def restore_snapshot(snapshot_id: str, request: Request):
     session = _prepare(request)
     snap = db.one("SELECT project_id FROM snapshots WHERE id=?", [snapshot_id])
     if not snap:
         raise HTTPException(404, "Snapshot not found")
+    check_revision(request, snap["project_id"])
     try:
         project_id = db.restore_snapshot(snapshot_id)
     except KeyError:
@@ -419,6 +447,7 @@ def restore_snapshot(snapshot_id: str, request: Request):
 
 
 @app.get("/api/episodes/{episode_id}/diagnostics")
+@workspace_request
 def diagnostics(episode_id: str, request: Request):
     _prepare(request)
     ep = db.one("SELECT * FROM episodes WHERE id=?", [episode_id])
@@ -436,10 +465,11 @@ def diagnostics(episode_id: str, request: Request):
 
 
 @app.get("/api/projects/{project_id}/export/{kind}")
+@workspace_request
 def export(project_id: str, kind: str, request: Request):
     _prepare(request)
     try:
-        payload = db.project_payload(project_id)
+        payload = db.project_payload(project_id, include_snapshots=(kind == "package"))
     except KeyError:
         raise HTTPException(404, "Project not found")
     title = "".join(c if c.isalnum() or c in " -_" else "_" for c in payload["project"]["title"])[:120] or "Story"
@@ -457,21 +487,59 @@ def export(project_id: str, kind: str, request: Request):
 
 
 @app.post("/api/import")
-async def import_project(
+@workspace_request
+def import_project(
     request: Request,
     file: UploadFile = File(...),
     mode: str = Query("copy", pattern="^(copy|replace)$"),
 ):
     session = _prepare(request)
-    raw = await file.read(MAX_PACKAGE_BYTES + 1)
+    raw = file.file.read(MAX_PACKAGE_BYTES + 1)
     if len(raw) > MAX_PACKAGE_BYTES:
         raise HTTPException(413, "Project package exceeds the 10 MiB limit")
     try:
         payload = read_package(raw)
         # A portable upload must not authorize writes to an embedded Drive file ID.
         payload.pop("project_source", None)
+        if mode == "replace" and db.one("SELECT id FROM projects WHERE id=?", [payload["project"]["id"]]):
+            check_revision(request, payload["project"]["id"])
         pid = db.import_payload(payload, mode=mode)
     except (ValueError, KeyError, TypeError, sqlite3.Error, zipfile.BadZipFile, RuntimeError):
         raise HTTPException(400, "Invalid project package. No imported changes were saved.")
     _save(session, pid)
     return {"project_id": pid}
+
+
+class ResolvePayload(BaseModel):
+    action: str
+
+
+@app.post('/api/projects/{project_id}/sync')
+def resolve_sync(project_id: str, payload: ResolvePayload, request: Request):
+    session=drive_store.require_session(request)
+    with drive_store.SYNC_LOCK:
+        drive_store._bind_user_cache(session)
+        result=drive_store.resolve_project(session,project_id,payload.action)
+        result['revision']=db.project_revision(result['project_id'])
+        return result
+
+
+@app.post('/api/projects/{project_id}/fountain-branch')
+@workspace_request
+def select_fountain_branch(project_id: str, payload: Payload, request: Request):
+    session=_prepare(request)
+    check_revision(request,project_id)
+    source=db.get_project_source(project_id)
+    branch_id=payload.data.get('branch_id')
+    if not source or not db.one('SELECT id FROM branches WHERE id=? AND project_id=?',[branch_id,project_id]):
+        raise HTTPException(400,'Choose a path belonging to this linked story.')
+    db.upsert_project_source(project_id,branch_id=branch_id)
+    _save(session,project_id)
+    return {'ok':True}
+
+
+@app.get('/api/projects/{project_id}/sync')
+@workspace_request
+def get_sync(project_id: str, request: Request):
+    _prepare(request)
+    return db.sync_status(project_id)

@@ -93,6 +93,22 @@ def transaction():
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS sync_jobs (
+    project_id TEXT PRIMARY KEY,
+    file_id TEXT,
+    etag TEXT,
+    operation_id TEXT,
+    payload_json TEXT,
+    stage TEXT NOT NULL DEFAULT 'done',
+    status TEXT NOT NULL DEFAULT 'synced',
+    error TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS revoked_sessions (
+    sid TEXT PRIMARY KEY,
+    expires_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -239,6 +255,9 @@ def _has_column(con, table: str, column: str) -> bool:
 def init_db(seed: bool = True) -> None:
     with connect() as con:
         con.executescript(SCHEMA)
+        for column in ('branch_id', 'source_etag'):
+            if not _has_column(con, 'project_sources', column):
+                con.execute(f'ALTER TABLE project_sources ADD COLUMN {column} TEXT')
         if not _has_column(con, "scenes", "screenplay_text"):
             con.execute("ALTER TABLE scenes ADD COLUMN screenplay_text TEXT DEFAULT ''")
     if seed:
@@ -319,7 +338,8 @@ def insert(table: str, payload: dict) -> str:
 def update(table: str, object_id: str, payload: dict) -> None:
     _validate_columns(table, payload)
     data = dict(payload)
-    existing = one(f"SELECT * FROM {table} WHERE id=?", [object_id])
+    primary = "project_id" if table == "project_sources" else "id"
+    existing = one(f"SELECT * FROM {table} WHERE {primary}=?", [object_id])
     if not existing:
         raise KeyError(object_id)
     _validate_relationships(table, {**existing, **data})
@@ -333,7 +353,7 @@ def update(table: str, object_id: str, payload: dict) -> None:
     else:
         sets = ",".join(f"{k}=?" for k in data)
         vals = list(data.values()) + [object_id]
-        execute(f"UPDATE {table} SET {sets} WHERE id=?", vals)
+        execute(f"UPDATE {table} SET {sets} WHERE {primary}=?", vals)
 
 
 def delete(table: str, object_id: str) -> None:
@@ -428,7 +448,7 @@ def get_project_source_by_drive_file(drive_file_id: str) -> dict | None:
 
 def upsert_project_source(project_id: str, **fields) -> dict:
     allowed = {
-        "source_kind",
+        "source_kind", "branch_id", "source_etag",
         "drive_file_id",
         "drive_file_name",
         "drive_parent_id",
@@ -499,6 +519,8 @@ def workspace(project_id: str) -> dict:
         "SELECT id, project_id, label, created_at FROM snapshots WHERE project_id=? ORDER BY created_at DESC",
         [project_id],
     )
+    payload["revision"] = project_revision(project_id)
+    payload["sync"] = sync_status(project_id)
     return payload
 
 
@@ -551,14 +573,14 @@ def _import_payload(payload: dict, mode: str = "copy") -> str:
         if old is None:
             return None
         if old not in mapping:
-            mapping[old] = uid()
+            mapping[old] = old if mode == "replace" else uid()
         return mapping[old]
 
     ts = now_iso()
     project = dict(src)
     project["id"] = project_id
     project["title"] = project["title"] if mode == "replace" else f"{project['title']} (imported)"
-    project["updated_at"] = ts
+    project["updated_at"] = src.get("updated_at", ts) if mode == "replace" else ts
     insert("projects", project)
 
     for branch in payload.get("branches", []):
@@ -617,6 +639,23 @@ def _import_payload(payload: dict, mode: str = "copy") -> str:
             data["id"] = snap["id"]
             data["project_id"] = project_id
             insert("snapshots", data)
+    if mode == "copy":
+        for snap in payload.get("snapshots", []):
+            historical = json.loads(snap["payload_json"]) if "payload_json" in snap else snap["payload"]
+            historical = json.loads(json.dumps(historical))
+            if historical.get("project", {}).get("id") != src["id"]:
+                raise ValueError("Snapshot belongs to another story")
+            historical.pop("snapshots", None)
+            historical.pop("project_source", None)
+            historical["project"]["id"] = project_id
+            historical["project"]["title"] = project["title"]
+            for table in ("branches","characters","episodes","scenes","causal_links","bills","story_notes"):
+                for row in historical.get(table, []):
+                    for key, value in list(row.items()):
+                        if key == 'id' or key.endswith('_id'):
+                            row[key] = mapped(value)
+            insert('snapshots', {'project_id':project_id,'label':snap.get('label','Snapshot'),
+                'created_at':snap.get('created_at',ts),'payload_json':json.dumps(historical)})
     return project_id
 
 
@@ -710,3 +749,31 @@ def ensure_demo() -> None:
         "moral_cost": "Mara has proven to herself that fabrication can work.", "status": "Escalating",
         "payoff_scene_id": None, "created_at": ts, "updated_at": ts,
     })
+
+
+def project_revision(project_id: str) -> str:
+    payload = project_payload(project_id, include_snapshots=True)
+    payload['project_source'] = {k:v for k,v in (payload.get('project_source') or {}).items() if k in {'branch_id','drive_file_id'}}
+    for key in ('exported_at',):
+        payload.pop(key, None)
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def sync_job(project_id: str) -> dict | None:
+    return one('SELECT * FROM sync_jobs WHERE project_id=?', [project_id])
+
+
+def sync_status(project_id: str) -> dict:
+    job = sync_job(project_id)
+    return {"status": job['status'] if job else 'local', "message": job['error'] if job else '',
+            "updated_at": job['updated_at'] if job else None}
+
+
+def set_sync(project_id: str, **fields) -> None:
+    allowed = {'file_id','etag','operation_id','payload_json','stage','status','error'}
+    if set(fields) - allowed:
+        raise ValueError('Invalid sync state')
+    with connect() as con:
+        con.execute('INSERT OR IGNORE INTO sync_jobs(project_id,updated_at) VALUES(?,?)', [project_id,now_iso()])
+        fields['updated_at'] = now_iso()
+        con.execute(f"UPDATE sync_jobs SET {','.join(k+'=?' for k in fields)} WHERE project_id=?", [*fields.values(),project_id])

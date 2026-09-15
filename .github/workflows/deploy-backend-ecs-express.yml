@@ -20,7 +20,10 @@ env:
   ECS_CLUSTER: default
 
 jobs:
+  verify:
+    uses: ./.github/workflows/check.yml
   deploy:
+    needs: verify
     name: Build and deploy backend
     runs-on: ubuntu-latest
     environment: production

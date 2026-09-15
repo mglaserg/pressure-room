@@ -43,3 +43,18 @@ test('unavailable browser storage is reported, but remote save is still attempte
   const saver=createDraftSaver({key:'scene4',storage:{getItem:()=>null,setItem:()=>{throw Error('quota')},removeItem:()=>{}},send:async()=>{sent=true},onState:s=>states.push(s)});
   saver.update({notes:'x'});assert.equal(states.at(-1),'uncached');await saver.flush();assert.ok(sent);assert.equal(states.at(-1),'saved');
 });
+
+
+test('conflicting recovery stays cached and never auto-overwrites saved text', async()=>{
+  let sends=0;const saver=createDraftSaver({key:'blocked',storage:storage(),send:async()=>{sends++}});
+  saver.pause();saver.update({text:'recovered'});await saver.flush();
+  saver.update({text:'still editing'});await saver.flush();
+  assert.equal(sends,0);assert.equal(saver.recover().text,'still editing');assert.ok(saver.isPending());
+  saver.discard();await saver.release();
+});
+
+test('a stale revision pauses later writes until recovery is explicitly discarded',async()=>{
+  let sends=0;const saver=createDraftSaver({key:'stale',storage:storage(),send:async()=>{sends++;throw Object.assign(Error('stale'),{status:409})}});
+  saver.update({text:'first'});await saver.flush();saver.update({text:'second'});await saver.flush();
+  assert.equal(sends,1);assert.equal(saver.recover().text,'second');saver.discard();await saver.release();
+});
