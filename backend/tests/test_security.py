@@ -89,6 +89,8 @@ def test_cross_origin_mutations_and_private_response_headers(isolated_db):
     with TestClient(app) as client:
         response = client.post('/api/projects', json={'data':{'title':'Attack'}}, headers={'Origin':'https://attacker.example'})
         assert response.status_code == 403
+        fetch_metadata = client.post('/api/projects', json={'data':{'title':'Attack'}}, headers={'Sec-Fetch-Site':'cross-site'})
+        assert fetch_metadata.status_code == 403
         assert client.get('/api/projects').headers['cache-control'] == 'no-store'
         assert client.get('/api/google/disconnect').status_code == 405
 
