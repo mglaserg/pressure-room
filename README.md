@@ -34,10 +34,12 @@ Pressure Room keeps only four top-level areas:
 - Room menu for paths, storage, new stories and Export & backup
 - browser-local portable backups with copy import and explicit restore
 - durable Drive upload intents, conflict recovery and conditional writes
+- OAuth scope recovery: partial Drive grants are rejected cleanly and reconnect starts from a fresh Google authorization
 - Edit / Page toggle over the same screenplay source
 - typeset Fountain preview with screenplay spacing and dialogue indentation
 - paper-like screenplay canvas
 - editorial scene rail on desktop / swipeable scene strip on mobile
+- explicit scene and episode deletion with destructive confirmation
 - local draft preservation
 - debounced autosave
 - progressive-disclosure scene structure

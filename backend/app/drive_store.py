@@ -34,6 +34,7 @@ SCOPES = f"openid email {DRIVE_SCOPE}"
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
 DRIVE_V2_FILES_URL = "https://www.googleapis.com/drive/v2/files"
@@ -46,6 +47,72 @@ SYNC_LOCK = threading.RLock()
 LAST_SYNC_AT: dict[str, float] = {}
 ACCESS_CACHE: dict[str, tuple[str, float]] = {}
 
+
+
+
+def _granted_scopes(token_data: dict) -> set[str]:
+    raw = token_data.get("scope")
+    if isinstance(raw, str):
+        return {scope for scope in raw.split() if scope}
+    if isinstance(raw, (list, tuple, set)):
+        return {str(scope) for scope in raw if str(scope)}
+    return set()
+
+
+def _revoke_google_token(token: str | None) -> None:
+    """Best-effort OAuth revocation. Local invalidation still wins if Google is unavailable."""
+    if not token:
+        return
+    try:
+        httpx.post(
+            REVOKE_URL,
+            data={"token": token},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=HTTP_TIMEOUT,
+        )
+    except httpx.HTTPError:
+        pass
+
+
+def _invalidate_session(session: dict | None, *, revoke_google: bool) -> None:
+    if not session:
+        return
+    sid = str(session.get("sid") or "").strip()
+    sub = str(session.get("sub") or "").strip()
+    if sid:
+        db.bind_default_cache()
+        db.execute('DELETE FROM revoked_sessions WHERE expires_at<?', [time.time()])
+        db.execute('INSERT OR REPLACE INTO revoked_sessions(sid,expires_at) VALUES(?,?)', [sid,time.time()+SESSION_TTL])
+    if sub:
+        ACCESS_CACHE.pop(sub, None)
+        CONDITIONAL_WRITE_CHECKS.pop(sub, None)
+    if revoke_google:
+        _revoke_google_token(session.get("refresh_token") or session.get("access_token"))
+
+
+def _google_error_message(response: httpx.Response) -> str:
+    try:
+        return str(response.json().get("error", {}).get("message", ""))
+    except Exception:
+        return ""
+
+
+def _is_insufficient_scope(response: httpx.Response) -> bool:
+    if response.status_code != 403:
+        return False
+    message = _google_error_message(response).lower()
+    return "insufficient authentication scope" in message or "insufficient oauth scope" in message
+
+
+def _raise_missing_drive_scope(session: dict) -> None:
+    _invalidate_session(session, revoke_google=True)
+    raise HTTPException(
+        403,
+        {
+            "code": "google_drive_scope_missing",
+            "message": "Google Drive edit permission is missing. Reconnect Google Drive and allow Pressure Room to create and edit the files you use with it.",
+        },
+    )
 
 def enabled() -> bool:
     return bool(GOOGLE_CLIENT_ID)
@@ -160,6 +227,7 @@ def status(request: Request) -> dict:
         "storage": "google-drive",
         "picker_configured": bool(GOOGLE_PICKER_API_KEY and GOOGLE_CLOUD_PROJECT_NUMBER),
         "email": session.get("email") if session else None,
+        "drive_scope_granted": (DRIVE_SCOPE in set(session.get("scopes") or [])) if session and "scopes" in session else None,
         "error": error,
     }
 
@@ -225,6 +293,14 @@ def callback_response(request: Request, code: str, state: str) -> Response:
     if not access or not refresh:
         raise HTTPException(502, "Google did not return an offline refresh token. Revoke Pressure Room in Google and connect again.")
 
+    granted_scopes = _granted_scopes(token_data)
+    if granted_scopes and DRIVE_SCOPE not in granted_scopes:
+        _revoke_google_token(refresh or access)
+        response = RedirectResponse(f"{PUBLIC_URL}/?google_drive=permission_required", status_code=302)
+        response.delete_cookie(COOKIE_NAME, path="/")
+        response.delete_cookie(STATE_COOKIE, path="/")
+        return response
+
     user_response = httpx.get(USERINFO_URL, headers={"Authorization": f"Bearer {access}"}, timeout=HTTP_TIMEOUT)
     if user_response.status_code >= 400:
         raise HTTPException(502, "Could not read the connected Google account.")
@@ -242,6 +318,7 @@ def callback_response(request: Request, code: str, state: str) -> Response:
         "refresh_token": refresh,
         "access_token": access,
         "expires_at": time.time() + max(60, expires_in - 60),
+        "scopes": sorted(granted_scopes),
     }
     response = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
     response.set_cookie(COOKIE_NAME, _seal(session), max_age=SESSION_TTL, httponly=True, secure=_secure_cookie(), samesite="lax", path="/")
@@ -251,11 +328,7 @@ def callback_response(request: Request, code: str, state: str) -> Response:
 
 def disconnect_response(request: Request) -> Response:
     session = session_from_request(request)
-    if session:
-        db.bind_default_cache()
-        db.execute('DELETE FROM revoked_sessions WHERE expires_at<?', [time.time()])
-        db.execute('INSERT OR REPLACE INTO revoked_sessions(sid,expires_at) VALUES(?,?)', [session['sid'],time.time()+SESSION_TTL])
-        ACCESS_CACHE.pop(session['sub'], None)
+    _invalidate_session(session, revoke_google=True)
     response = RedirectResponse(f"{PUBLIC_URL}/", status_code=302)
     response.delete_cookie(COOKIE_NAME, path="/")
     response.delete_cookie(STATE_COOKIE, path="/")
@@ -352,6 +425,8 @@ def bounded_download(session: dict, file_id: str, limit: int) -> bytes:
                 ACCESS_CACHE.pop(_session_sub(session), None)
                 ACCESS_CACHE[_session_sub(session)] = _refresh_access_token(session)
                 continue
+            if _is_insufficient_scope(response):
+                _raise_missing_drive_scope(session)
             if response.status_code >= 400:
                 raise HTTPException(502, 'Could not download the Drive file.')
             chunks=[]; size=0
@@ -423,16 +498,14 @@ def _request(session: dict, method: str, url: str, **kwargs) -> httpx.Response:
         ACCESS_CACHE[key] = (token, expires)
         headers["Authorization"] = f"Bearer {token}"
         response = httpx.request(method, url, headers=headers, timeout=HTTP_TIMEOUT, **kwargs)
+    if _is_insufficient_scope(response):
+        _raise_missing_drive_scope(session)
     if response.status_code == 404:
         raise HTTPException(404,"Drive file not found. Your local copy is preserved.")
     if response.status_code == 412:
         raise HTTPException(409, "Drive changed since you opened it. Your edits are preserved; choose a recovery copy or load Drive.")
     if response.status_code >= 400:
-        detail = ""
-        try:
-            detail = response.json().get("error", {}).get("message", "")
-        except Exception:
-            pass
+        detail = _google_error_message(response)
         raise HTTPException(502, f"Google Drive request failed ({response.status_code}){': ' + detail if detail else ''}")
     return response
 

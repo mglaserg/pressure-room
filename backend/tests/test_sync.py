@@ -194,3 +194,63 @@ def test_reload_external_fountain_keeps_other_path(story,monkeypatch):
     assert [e['id'] for e in db.get_episodes(story) if e['branch_id']==alt]==alt_ids
     assert 'An external change.' in fountain_link._render_linked_fountain(story,'')
     assert db.get_project_source(story)['source_etag']=='new'
+
+
+def test_oauth_callback_rejects_partial_drive_grant(monkeypatch):
+    from cryptography.fernet import Fernet
+    from starlette.requests import Request
+
+    monkeypatch.setattr(drive_store, 'GOOGLE_CLIENT_ID', 'client')
+    monkeypatch.setattr(drive_store, 'GOOGLE_CLIENT_SECRET', 'secret')
+    monkeypatch.setattr(drive_store, 'SESSION_KEY', Fernet.generate_key().decode())
+    monkeypatch.setattr(drive_store, 'PUBLIC_URL', 'https://example.com')
+
+    calls=[]
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        if url == drive_store.TOKEN_URL:
+            return httpx.Response(200, json={
+                'access_token':'access',
+                'refresh_token':'refresh',
+                'expires_in':3600,
+                'scope':'openid email',
+            })
+        if url == drive_store.REVOKE_URL:
+            return httpx.Response(200)
+        raise AssertionError(url)
+    monkeypatch.setattr(httpx, 'post', post)
+
+    request=Request({'type':'http','headers':[(b'cookie',f'{drive_store.STATE_COOKIE}=state'.encode())]})
+    response=drive_store.callback_response(request,'code','state')
+    assert response.status_code==302
+    assert response.headers['location']=='https://example.com/?google_drive=permission_required'
+    assert calls[-1][0]==drive_store.REVOKE_URL
+    assert calls[-1][1]['data']['token']=='refresh'
+
+
+def test_insufficient_scope_invalidates_session_and_returns_reconnect_code(monkeypatch):
+    monkeypatch.setattr(drive_store,'access_token',lambda session:'access')
+    monkeypatch.setattr(httpx,'request',lambda *a,**k:httpx.Response(
+        403,
+        json={'error':{'message':'Request had insufficient authentication scopes.'}},
+    ))
+    invalidated=[]
+    monkeypatch.setattr(drive_store,'_invalidate_session',lambda session,**kwargs:invalidated.append((session,kwargs)))
+    session={'sid':'sid','sub':'sub','refresh_token':'refresh'}
+    with pytest.raises(HTTPException) as exc:
+        drive_store._request(session,'GET','https://www.googleapis.com/drive/v3/files')
+    assert exc.value.status_code==403
+    assert exc.value.detail['code']=='google_drive_scope_missing'
+    assert invalidated==[(session,{'revoke_google':True})]
+
+
+def test_disconnect_revokes_google_grant(monkeypatch):
+    from starlette.requests import Request
+    session={'sid':'session-id','sub':'account','refresh_token':'refresh'}
+    monkeypatch.setattr(drive_store,'session_from_request',lambda request:session)
+    invalidated=[]
+    monkeypatch.setattr(drive_store,'_invalidate_session',lambda value,**kwargs:invalidated.append((value,kwargs)))
+    request=Request({'type':'http','headers':[]})
+    response=drive_store.disconnect_response(request)
+    assert response.status_code==302
+    assert invalidated==[(session,{'revoke_google':True})]

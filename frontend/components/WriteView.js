@@ -1,6 +1,6 @@
 'use client';
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {create, localApi, remoteApi} from '@/lib/api';
+import {create, localApi, remoteApi, remove} from '@/lib/api';
 import {createDraftSaver} from '@/lib/draft-saver.mjs';
 import {downloadBlob} from '@/lib/portable.mjs';
 import {parseFountain} from '@/lib/fountain.mjs';
@@ -15,6 +15,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
   const [structureOpen, setStructureOpen] = useState(false);
   const [saveState, setSaveState] = useState('saved');
   const [viewMode, setViewMode] = useState('edit');
+  const [actionMessage,setActionMessage]=useState('');
   const saver = useRef(null);
 
   useEffect(()=>{
@@ -92,6 +93,24 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     await reload(r.id);
   }
 
+  async function deleteScene() {
+    if (!selected) return;
+    const label = selected.slugline || `Scene ${selected.scene_no}`;
+    if (!window.confirm(`Delete Scene ${selected.scene_no} · ${label}? This cannot be undone.`)) return;
+    const index=scenes.findIndex(scene=>scene.id===selected.id);
+    const nextScene=scenes[index+1]||scenes[index-1]||null;
+    setActionMessage('');
+    try {
+      await saver.current?.flush();
+      await remove('scenes', selected.id);
+      saver.current?.discard();
+      setSceneId(nextScene?.id||'');
+      await reload(nextScene?.id);
+    } catch (err) {
+      setActionMessage(err.message||'Could not delete the scene.');
+    }
+  }
+
   if (!episode) return <Empty title="Create an episode to start writing." body="Give the story somewhere to happen, then put a character under pressure."/>;
 
   return (
@@ -119,6 +138,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
             <div className="writer-location"><span className="eyebrow">Episode {episode.number}</span><b>Scene {String(selected.scene_no).padStart(2,'0')}</b></div>
             <div className="writer-toolbar-actions">
               <button className="quiet-action focus-button" aria-pressed={focus} onClick={()=>setFocus(v=>!v)}>{focus?'Exit focus':'Focus'}</button>
+              {!focus&&<button className="quiet-action danger-ghost" type="button" onClick={deleteScene}>Delete scene</button>}
               {focus&&<select className="focus-scene-select" aria-label="Scene in focus mode" value={selected.id} onChange={e=>setSceneId(e.target.value)}>{scenes.map(s=><option value={s.id} key={s.id}>Scene {s.scene_no}</option>)}</select>}
               <div className="writer-view-switch" role="group" aria-label="Writing view">
                 <button type="button" className={viewMode==='edit'?'active':''} aria-pressed={viewMode==='edit'} onClick={()=>chooseView('edit')}>Edit</button>
@@ -127,6 +147,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
               <div className={`save-state ${saveState}`} role="status" aria-live="polite"><i/>{saveState==='saving'?'Saving…':saveState==='conflict'?'Conflict · draft kept here':saveState==='pending'?'Saved here · Drive pending':saveState==='offline'?'Draft on device · sync failed':saveState==='uncached'?'Backup unavailable · keep this tab open':storageScope.startsWith('local:')?'Saved in this browser':'Synced to Drive'}{(saveState==='offline'||saveState==='uncached')&&<button className="quiet-action" onClick={()=>saver.current?.flush()}>Retry</button>}</div>
             </div>
           </div>
+          {actionMessage&&<p className="form-message writer-action-message" role="alert">{actionMessage}</p>}
 
           {['conflict','offline','uncached'].includes(saveState)&&<div className="draft-recovery" role="alert"><p>Your draft is still on this page. Keep a copy before loading another version.</p><div className="form-actions"><button className="button secondary" onClick={()=>downloadBlob(JSON.stringify(draft,null,2),`scene-${selected.scene_no}-recovery.json`,'application/json')}>Download draft</button><button className="button secondary" onClick={()=>{downloadBlob(JSON.stringify(draft,null,2),`scene-${selected.scene_no}-recovery.json`,'application/json');saver.current?.discard();window.location.reload()}}>Download draft & load saved story</button></div></div>}
           {viewMode==='edit'

@@ -535,12 +535,21 @@ async function localRequest(path, options = {}) {
       const removedSceneIds = new Set(db.scenes.filter(s => s.episode_id === id).map(s => s.id));
       db.scenes = db.scenes.filter(s => s.episode_id !== id);
       db.causal_links = db.causal_links.filter(l => l.episode_id !== id);
-      db.bills = db.bills.map(b => removedSceneIds.has(b.scene_id) ? {...b, scene_id: null} : b);
+      db.bills = db.bills.map(b => ({
+        ...b,
+        episode_id: b.episode_id === id ? null : b.episode_id,
+        scene_id: removedSceneIds.has(b.scene_id) ? null : b.scene_id,
+        payoff_scene_id: removedSceneIds.has(b.payoff_scene_id) ? null : b.payoff_scene_id,
+      }));
     }
 
     if (table === 'scenes') {
       db.causal_links = db.causal_links.filter(l => l.from_scene_id !== id && l.to_scene_id !== id);
-      db.bills = db.bills.map(b => b.scene_id === id ? {...b, scene_id: null} : b);
+      db.bills = db.bills.map(b => ({
+        ...b,
+        scene_id: b.scene_id === id ? null : b.scene_id,
+        payoff_scene_id: b.payoff_scene_id === id ? null : b.payoff_scene_id,
+      }));
     }
 
     if (table === 'branches') {
@@ -549,7 +558,12 @@ async function localRequest(path, options = {}) {
       db.episodes = db.episodes.filter(e => e.branch_id !== id);
       db.scenes = db.scenes.filter(s => !episodeIds.has(s.episode_id));
       db.causal_links = db.causal_links.filter(l => !episodeIds.has(l.episode_id));
-      db.bills = db.bills.map(b => sceneIds.has(b.scene_id) ? {...b, scene_id: null} : b);
+      db.bills = db.bills.map(b => ({
+        ...b,
+        episode_id: episodeIds.has(b.episode_id) ? null : b.episode_id,
+        scene_id: sceneIds.has(b.scene_id) ? null : b.scene_id,
+        payoff_scene_id: sceneIds.has(b.payoff_scene_id) ? null : b.payoff_scene_id,
+      }));
     }
 
     db[table] = db[table].filter(item => item.id !== id);
@@ -616,7 +630,12 @@ export async function remoteApi(path, options = {}) {
     if (!res.ok) {
       const detail = await res.json().catch(() => ({detail: res.statusText}));
       const message=detail.detail?.message||detail.detail||`Request failed (${res.status})`;
-      const error=new Error(message);error.status=res.status;error.code=detail.detail?.code;throw error;
+      const error=new Error(message);error.status=res.status;error.code=detail.detail?.code;
+      if(error.code==='google_drive_scope_missing'&&typeof window!=='undefined'){
+        setStorageMode('');
+        window.location.assign('/?google_drive=permission_required');
+      }
+      throw error;
     }
     const type = res.headers.get('content-type') || '';
     if(!type.includes('application/json'))return res;

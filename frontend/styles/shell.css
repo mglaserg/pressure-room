@@ -23,6 +23,7 @@
 .brand-mark.large i{height:30px}
 
 .context-bar{display:flex;align-items:center;justify-content:center;gap:.15rem;min-width:0}
+.episode-context{display:flex;align-items:center;min-width:0}.context-delete{border:0;background:transparent;color:var(--neutral-650);width:28px;height:28px;border-radius:var(--radius-md);font-size:var(--type-body-lg);line-height:1}.context-delete:hover{background:var(--danger-wash);color:var(--danger-bright)}.context-delete:disabled{opacity:.35;cursor:not-allowed}
 .context-select{display:block;position:relative;max-width:250px}
 .context-select>span{display:none}
 .context-select select{appearance:none;width:auto;max-width:250px;min-width:115px;border-color:transparent;background:transparent;color:var(--neutral-250);padding:.56rem 1.65rem .56rem .72rem;font-size:var(--type-sm);font-weight:var(--weight-semibold);text-overflow:ellipsis}
@@ -33,6 +34,7 @@
 .top-actions{display:flex;gap:.45rem;align-items:center}
 .quiet-action{border:0;background:transparent;color:var(--neutral-250);border-radius:var(--radius-md);padding:.58rem .7rem;font-size:var(--type-sm);font-weight:var(--weight-bold)}
 .quiet-action:hover{background:var(--overlay-soft);color:var(--text-primary)}
+.quiet-action.danger-ghost{color:var(--neutral-450)}.quiet-action.danger-ghost:hover{background:var(--danger-wash);color:var(--danger-bright)}
 
 .button{border:1px solid var(--accent-border-strong);background:var(--accent);color:var(--accent-ink);border-radius:var(--radius-md);padding:.68rem .92rem;font-weight:var(--weight-heavy);letter-spacing:-.01em;transition:background .15s ease,border-color .15s ease,opacity .15s ease;box-shadow:0 5px 14px rgba(0,0,0,.12)}
 .button:hover{background:var(--accent-strong)}

@@ -27,8 +27,8 @@ export default function RoomMenu({open,onClose,workspace,drive,storageMode,branc
           const keys=Object.keys(localStorage).filter(k=>k.startsWith(prefix));
           if(keys.length&&window.confirm('Download any unsynced drafts before clearing them. Clear this account’s recovery drafts from this browser?'))keys.forEach(k=>localStorage.removeItem(k));
           setStorageMode('');window.location.reload();
-        })}>Disconnect this session</button></>}
-        <p className="microcopy">Switching storage opens a separate collection; it does not move your stories. Use a backup to transfer one. Disconnecting does not revoke Google consent.</p>
+        })}>Disconnect Google Drive</button></>}
+        <p className="microcopy">Switching storage opens a separate collection; it does not move your stories. Use a backup to transfer one. Disconnecting also revokes Pressure Room’s Google authorization, so reconnecting starts with a fresh permission grant.</p>
       </div></details>
       {message&&<p role="alert" className="form-message">{message}</p>}
     </div>

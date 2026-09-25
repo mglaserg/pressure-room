@@ -84,3 +84,5 @@
   .fountain-parenthetical{width:auto;margin-left:24%;margin-right:12%}
   .fountain-dialogue{width:auto;margin-left:14%;margin-right:8%}
 }
+
+.writer-action-message{margin:.2rem .15rem .8rem;color:var(--danger-bright)}

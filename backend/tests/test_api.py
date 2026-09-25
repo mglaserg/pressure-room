@@ -186,3 +186,44 @@ def test_google_user_caches_are_isolated(tmp_path, monkeypatch):
         assert [p["title"] for p in projects_a] == ["User A Story"]
     finally:
         db.bind_default_cache()
+
+
+def test_delete_scene_and_episode_clean_related_records():
+    with TestClient(app) as client:
+        project = client.post('/api/projects', json={'data': {'title': 'Delete Test'}}).json()['id']
+        ws = client.get(f'/api/projects/{project}').json()
+        branch = ws['branches'][0]['id']
+        episode = client.post(f'/api/projects/{project}/episodes', json={'data': {
+            'branch_id': branch, 'number': 1, 'title': 'Disposable Episode'
+        }}).json()['id']
+        first = client.post(f'/api/episodes/{episode}/scenes', json={'data': {
+            'scene_no': 1, 'slugline': 'INT. ONE - DAY'
+        }}).json()['id']
+        second = client.post(f'/api/episodes/{episode}/scenes', json={'data': {
+            'scene_no': 2, 'slugline': 'INT. TWO - DAY'
+        }}).json()['id']
+        client.post(f'/api/episodes/{episode}/links', json={'data': {
+            'from_scene_id': first, 'relation': 'THEREFORE', 'to_scene_id': second, 'note': 'forces it'
+        }})
+        bill = client.post(f'/api/projects/{project}/bills', json={'data': {
+            'episode_id': episode,
+            'scene_id': first,
+            'payoff_scene_id': first,
+            'title': 'Disposable bill',
+        }}).json()['id']
+
+        deleted_scene = client.delete(f'/api/scenes/{first}')
+        assert deleted_scene.status_code == 200
+        assert db.one('SELECT id FROM causal_links WHERE episode_id=?', [episode]) is None
+        bill_row = db.one('SELECT episode_id,scene_id,payoff_scene_id FROM bills WHERE id=?', [bill])
+        assert bill_row['episode_id'] == episode
+        assert bill_row['scene_id'] is None
+        assert bill_row['payoff_scene_id'] is None
+
+        deleted_episode = client.delete(f'/api/episodes/{episode}')
+        assert deleted_episode.status_code == 200
+        assert db.one('SELECT id FROM scenes WHERE episode_id=?', [episode]) is None
+        bill_row = db.one('SELECT episode_id,scene_id,payoff_scene_id FROM bills WHERE id=?', [bill])
+        assert bill_row['episode_id'] is None
+        assert bill_row['scene_id'] is None
+        assert bill_row['payoff_scene_id'] is None

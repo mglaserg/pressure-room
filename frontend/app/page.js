@@ -1,6 +1,6 @@
 'use client';
 import {useEffect, useRef, useState} from 'react';
-import {api, create, getStorageMode, remoteApi, setStorageMode} from '@/lib/api';
+import {api, create, getStorageMode, remoteApi, remove, setStorageMode} from '@/lib/api';
 import WriteView from '@/components/WriteView';
 import {flushDrafts} from '@/lib/draft-saver.mjs';
 import StructureView from '@/components/StructureView';
@@ -33,6 +33,7 @@ export default function Home(){
   const [newStory,setNewStory]=useState(false);
   const [error,setError]=useState('');
   const [drive,setDrive]=useState(null);
+  const [driveNotice,setDriveNotice]=useState('');
   const [storageMode,setStorageModeState]=useState('');
   const [projectsReady,setProjectsReady]=useState(false);
   const driveImport=useRef(null);
@@ -93,7 +94,14 @@ export default function Home(){
     setProjectsReady(true);
   }
 
-  useEffect(()=>{boot().catch(e=>setError(e.message))},[]);
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    if(params.get('google_drive')==='permission_required'){
+      setDriveNotice('Google connected, but Drive edit permission was not granted. Connect again and allow Pressure Room to create and edit the files you use with it.');
+      window.history.replaceState({},'',window.location.pathname);
+    }
+    boot().catch(e=>setError(e.message));
+  },[]);
 
   const project=workspace?.project;
   const branch=workspace?.branches.find(b=>b.id===branchId);
@@ -119,6 +127,23 @@ export default function Home(){
       setEpisodeId(r.id);
       setSceneId('');
     }catch(e){setError(e.message||'Could not create the episode.');}
+    finally{setEpisodeBusy(false);}
+  }
+
+  async function deleteEpisode(){
+    if(!episode||episodeBusy)return;
+    const sceneCount=(workspace?.scenes||[]).filter(scene=>scene.episode_id===episode.id).length;
+    const detail=sceneCount===1?' It contains 1 scene.':sceneCount>1?` It contains ${sceneCount} scenes.`:'';
+    if(!window.confirm(`Delete Episode ${episode.number} · ${episode.title}?${detail} This cannot be undone.`))return;
+    setEpisodeBusy(true);
+    setError('');
+    try{
+      await flushDrafts();
+      await remove('episodes',episode.id);
+      setEpisodeId('');
+      setSceneId('');
+      await reload();
+    }catch(e){setError(e.message||'Could not delete the episode.');}
     finally{setEpisodeBusy(false);}
   }
 
@@ -168,6 +193,7 @@ export default function Home(){
       <h1>Where should Pressure Room keep your stories?</h1>
       <p>Start locally on this device, or connect Google Drive and keep your projects in your own cloud storage.</p>
       <p className="muted">Local mode stores stories only in this browser on this device. Google Drive mode keeps each story as a portable Pressure Room project file in your Drive.</p>
+      {driveNotice&&<p className="form-message" role="alert">{driveNotice}</p>}
     </div>
     <div className="boot-actions">
       <button className="button" onClick={chooseLocalMode}>Continue on this device</button>
@@ -229,7 +255,7 @@ export default function Home(){
       <div className="context-bar" aria-label="Story context">
         <label className="context-select"><span>Story</span><select value={projectId} onChange={async e=>{setProjectId(e.target.value);await loadWorkspace(e.target.value)}}>{projects.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
         <span className="context-chevron">/</span>
-        {branchEpisodes.length?<label className="context-select"><span>Episode</span><select aria-label="Episode" disabled={episodeBusy} value={episode?.id||''} onChange={e=>{const id=e.target.value;if(id==='__new_episode__'){void createEpisode();return;}setEpisodeId(id);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}<option value="__new_episode__">+ New episode</option></select></label>:<button className="context-add" disabled={episodeBusy} onClick={createEpisode}>{episodeBusy?'Creating…':'+ Episode'}</button>}
+        {branchEpisodes.length?<div className="episode-context"><label className="context-select"><span>Episode</span><select aria-label="Episode" disabled={episodeBusy} value={episode?.id||''} onChange={e=>{const id=e.target.value;if(id==='__new_episode__'){void createEpisode();return;}setEpisodeId(id);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}<option value="__new_episode__">+ New episode</option></select></label><button className="context-delete" type="button" disabled={episodeBusy||!episode} onClick={deleteEpisode} aria-label={episode?`Delete Episode ${episode.number}`:'Delete episode'} title="Delete episode">×</button></div>:<button className="context-add" disabled={episodeBusy} onClick={createEpisode}>{episodeBusy?'Creating…':'+ Episode'}</button>}
       </div>
 
       <div className="top-actions"><button className="button compact room-menu-trigger" aria-haspopup="dialog" onClick={()=>setRoomMenu(true)}>Room <span aria-hidden="true">☰</span></button></div>
