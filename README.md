@@ -24,7 +24,7 @@ Pressure Room keeps only four top-level areas:
 
 - **Write** — screenplay text is the primary surface; scene structure stays tucked away until opened.
 - **Structure** — Story, Characters, Causality, Bills, Branches.
-- **Diagnose** — Story MRI, Pressure Lab, optional Room Questions.
+- **Diagnose** — Story MRI, Pressure Lab, Suspense Engine, optional Room Questions.
 - **How to use** — onboarding designed to introduce Pressure Room to friends and collaborators.
 
 ## Highlights
@@ -33,7 +33,8 @@ Pressure Room keeps only four top-level areas:
 - focus mode with scene selection and visible save status
 - Room menu for paths, storage, new stories and Export & backup
 - browser-local portable backups with copy import and explicit restore
-- durable Drive upload intents, conflict recovery and conditional writes
+- optional Supabase/Postgres durable live state with optimistic concurrency
+- durable Drive mirror upload intents, conflict recovery and conditional writes
 - OAuth scope recovery: partial Drive grants are rejected cleanly and reconnect starts from a fresh Google authorization
 - Edit / Page toggle over the same screenplay source
 - typeset Fountain preview with screenplay spacing and dialogue indentation
@@ -67,6 +68,7 @@ Pressure Room keeps only four top-level areas:
 ### Diagnose
 - more readable Story MRI
 - calmer Pressure Lab
+- Suspense Engine tracks audience knowledge, waiting, withheld information, unpaid bills and causal handoffs without pretending to score quality
 - optional Room Questions remain supplementary
 - diagnostics are framed as lenses, never quality scores
 
@@ -140,10 +142,11 @@ Browser
   → Amazon ECS Express Mode
   → FastAPI
   → ephemeral SQLite working cache
-  ↔ Google Drive / Pressure Room/*.pressureroom (canonical)
+  ↔ Supabase/Postgres (durable live story state, when configured)
+  ↔ Google Drive / Pressure Room/*.pressureroom (portable mirror/export)
 ```
 
-Amplify receives `PRESSURE_ROOM_API_URL=https://<ecs-application-url>` at build time. ECS listens on port `8000` and uses `/api/health` for its health check. Production keeps one ECS task because Drive + SQLite is currently a single-writer architecture.
+Amplify receives `PRESSURE_ROOM_API_URL=https://<ecs-application-url>` at build time. ECS listens on port `8000` and uses `/api/health` for its health check. With Supabase configured, live story state survives task replacement independently of the container cache; Drive remains the human-visible portable copy. Without Supabase, the existing Drive-canonical behavior remains available for compatibility. Keep one ECS task for now because Drive mirror draining is still process-serialized.
 
 See [`DEPLOY_AWS.md`](DEPLOY_AWS.md) for the deployment contract.
 

@@ -227,3 +227,34 @@ def test_delete_scene_and_episode_clean_related_records():
         assert bill_row['episode_id'] is None
         assert bill_row['scene_id'] is None
         assert bill_row['payoff_scene_id'] is None
+
+
+def test_suspense_fields_round_trip_into_diagnostics():
+    with TestClient(app) as client:
+        pid = client.post('/api/projects', json={'data': {'title': 'Suspense Test'}}).json()['id']
+        ws = client.get(f'/api/projects/{pid}').json()
+        branch = ws['branches'][0]['id']
+        episode = client.post(f'/api/projects/{pid}/episodes', json={'data': {
+            'branch_id': branch, 'number': 1, 'title': 'Pressure'
+        }}).json()['id']
+        scene_id = client.post(f'/api/episodes/{episode}/scenes', json={'data': {
+            'scene_no': 1, 'slugline': 'INT. RECORDS ROOM - NIGHT'
+        }}).json()['id']
+        values = {
+            'audience_knows': 'The witness saw Mara alter the file.',
+            'audience_waits_for': 'Will the witness confront her?',
+            'withheld_information': 'The witness is already recording.',
+        }
+        response = client.patch(f'/api/scenes/{scene_id}', json={'data': values})
+        assert response.status_code == 200
+
+        refreshed = client.get(f'/api/projects/{pid}').json()
+        saved = next(item for item in refreshed['scenes'] if item['id'] == scene_id)
+        for key, value in values.items():
+            assert saved[key] == value
+
+        diagnostics = client.get(f'/api/episodes/{episode}/diagnostics').json()
+        suspense = next(row for row in diagnostics['suspense'] if row['scene_id'] == scene_id)
+        assert suspense['audience_waits_for'] == values['audience_waits_for']
+        assert 'waiting' in suspense['active_hooks']
+        assert 'withheld' in suspense['active_hooks']

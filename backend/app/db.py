@@ -170,6 +170,9 @@ CREATE TABLE IF NOT EXISTS scenes (
     cut_on TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     screenplay_text TEXT DEFAULT '',
+    audience_knows TEXT DEFAULT '',
+    audience_waits_for TEXT DEFAULT '',
+    withheld_information TEXT DEFAULT '',
     moral_delta INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -258,8 +261,9 @@ def init_db(seed: bool = True) -> None:
         for column in ('branch_id', 'source_etag'):
             if not _has_column(con, 'project_sources', column):
                 con.execute(f'ALTER TABLE project_sources ADD COLUMN {column} TEXT')
-        if not _has_column(con, "scenes", "screenplay_text"):
-            con.execute("ALTER TABLE scenes ADD COLUMN screenplay_text TEXT DEFAULT ''")
+        for column in ("screenplay_text", "audience_knows", "audience_waits_for", "withheld_information"):
+            if not _has_column(con, "scenes", column):
+                con.execute(f"ALTER TABLE scenes ADD COLUMN {column} TEXT DEFAULT ''")
     if seed:
         ensure_demo()
 

@@ -12,11 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
-from . import db, drive_store, fountain_link
+from . import db, drive_store, fountain_link, supabase_store
 from .request_limits import RequestLimitMiddleware
 from . import workspace_ops
 from .workspace_ops import workspace_request, check_revision
-from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions
+from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions, suspense_engine
 from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes, MAX_PACKAGE_BYTES
 
 
@@ -78,7 +78,7 @@ PATCH_FIELDS = {
     "projects": {"title", "premise", "theme"},
     "characters": {"name", "role", "want", "need", "core_belief", "moral_boundary", "fear", "temptation", "moral_score"},
     "episodes": {"number", "title", "logline", "status", "branch_id"},
-    "scenes": {"scene_no", "slugline", "pov_character_id", "opening_behavior", "scene_want", "obstacle", "tactic", "pressure", "choice", "start_state", "end_state", "cut_on", "notes", "screenplay_text", "moral_delta"},
+    "scenes": {"scene_no", "slugline", "pov_character_id", "opening_behavior", "scene_want", "obstacle", "tactic", "pressure", "choice", "start_state", "end_state", "cut_on", "notes", "screenplay_text", "audience_knows", "audience_waits_for", "withheld_information", "moral_delta"},
     "bills": {"episode_id", "scene_id", "character_id", "title", "external_cost", "moral_cost", "status", "payoff_scene_id"},
     "branches": {"name", "is_main"},
     "causal_links": {"from_scene_id", "relation", "to_scene_id", "note"},
@@ -114,6 +114,7 @@ def health():
         "version": "0.7.1",
         "storage": drive_store.storage_mode(),
         "cache": db.database_backend(),
+        "durable": supabase_store.storage_mode(),
     }
 
 
@@ -123,10 +124,12 @@ def ready():
         db.ping()
     except Exception as exc:
         raise HTTPException(503, "Local cache unavailable")
-    error = drive_store.configuration_error()
+    error = drive_store.configuration_error() or supabase_store.configuration_error()
     if error:
         raise HTTPException(503, error)
-    return {"ok": True, "storage": drive_store.storage_mode()}
+    if supabase_store.enabled():
+        supabase_store.ping()
+    return {"ok": True, "storage": drive_store.storage_mode(), "durable": supabase_store.storage_mode()}
 
 
 @app.get("/api/google/status")
@@ -152,7 +155,10 @@ def google_disconnect(request: Request):
 @app.post("/api/google/sync")
 def google_sync(request: Request):
     session = drive_store.require_session(request)
-    return {"ok": True, **drive_store.sync_all_from_drive(session)}
+    result = drive_store.sync_all_from_drive(session)
+    if supabase_store.enabled():
+        supabase_store.save_all(session)
+    return {"ok": True, **result}
 
 
 
@@ -326,6 +332,9 @@ def create_scene(episode_id: str, payload: Payload, request: Request):
             "cut_on": d.get("cut_on", ""),
             "notes": d.get("notes", ""),
             "screenplay_text": d.get("screenplay_text", ""),
+            "audience_knows": d.get("audience_knows", ""),
+            "audience_waits_for": d.get("audience_waits_for", ""),
+            "withheld_information": d.get("withheld_information", ""),
             "moral_delta": int(d.get("moral_delta", 0)),
             "created_at": ts,
             "updated_at": ts,
@@ -461,6 +470,7 @@ def diagnostics(episode_id: str, request: Request):
         "mri": story_mri(scenes, bills),
         "questions": writers_room_questions(protagonist, scenes, bills),
         "pressure_moves": [{"name": a, "description": b} for a, b in PRESSURE_MOVES],
+        "suspense": suspense_engine(scenes, bills, db.get_links(episode_id)),
     }
 
 
@@ -518,8 +528,10 @@ class ResolvePayload(BaseModel):
 def resolve_sync(project_id: str, payload: ResolvePayload, request: Request):
     session=drive_store.require_session(request)
     with drive_store.SYNC_LOCK:
-        drive_store._bind_user_cache(session)
+        drive_store.ensure_local(session)
         result=drive_store.resolve_project(session,project_id,payload.action)
+        if supabase_store.enabled():
+            supabase_store.save_all(session)
         result['revision']=db.project_revision(result['project_id'])
         return result
 

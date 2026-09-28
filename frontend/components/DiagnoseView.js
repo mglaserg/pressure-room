@@ -2,7 +2,7 @@
 import {useEffect, useState} from 'react';
 import {api} from '@/lib/api';
 
-const TABS=[['mri','Story MRI','Shape'],['pressure','Pressure Lab','Moves'],['questions','Room Questions','Interrogate']];
+const TABS=[['mri','Story MRI','Shape'],['pressure','Pressure Lab','Moves'],['suspense','Suspense Engine','Audience'],['questions','Room Questions','Interrogate']];
 
 export default function DiagnoseView({episode}) {
   const [section,setSection]=useState('mri');
@@ -18,7 +18,7 @@ export default function DiagnoseView({episode}) {
     {data&&<section className="diagnostic-next"><span className="eyebrow">Your next revision</span><h1>One question to take back to the page.</h1><p>{data.questions?.[0]||'What changes because of the character’s choice in this episode?'}</p><button className="button secondary" aria-expanded={details} onClick={()=>setDetails(v=>!v)}>{details?'Hide full diagnosis':'Explore the full diagnosis'}</button></section>}
     {(details||!data)&&<><div className="subnav diagnose-subnav">{TABS.map(([id,label,note])=><button key={id} className={section===id?'active':''} onClick={()=>setSection(id)}><b>{label}</b><small>{note}</small></button>)}</div>
     <section className="focus-card diagnose-card">
-      {error?<div className="empty-state compact-empty"><h2>Diagnostics could not load.</h2><p className="muted">{error}</p></div>:!data?<DiagnosticLoading/>:section==='mri'?<MRI rows={data.mri}/>:section==='pressure'?<Pressure moves={data.pressure_moves}/>:<Questions questions={data.questions}/>}
+      {error?<div className="empty-state compact-empty"><h2>Diagnostics could not load.</h2><p className="muted">{error}</p></div>:!data?<DiagnosticLoading/>:section==='mri'?<MRI rows={data.mri}/>:section==='pressure'?<Pressure moves={data.pressure_moves}/>:section==='suspense'?<Suspense rows={data.suspense||[]}/>:<Questions questions={data.questions}/>}
     </section></>}
   </div>
 }
@@ -41,6 +41,26 @@ function Pressure({moves}){
     <div className="pressure-grid">{moves.map((m,i)=><article className="pressure-card" key={m.name}><span className="pressure-number">{String(i+1).padStart(2,'0')}</span><div><div className="eyebrow">Pressure move</div><h3>{m.name}</h3><p>{m.description}</p></div></article>)}</div>
   </>
 }
+
+function Suspense({rows}){
+  return <>
+    <div className="focus-heading"><div><div className="eyebrow">Suspense Engine</div><h1>What is the audience carrying?</h1><p className="muted">Suspense is not a score. It is unresolved information, expectation, debt, and consequence moving from scene to scene.</p></div></div>
+    <div className="suspense-grid">{rows.length?rows.map(row=><article className="suspense-row" key={row.scene_id}>
+      <header><div><span className="eyebrow">{row.scene}</span><h3>{row.slugline}</h3></div><div className="suspense-hooks">{row.active_hooks.length?row.active_hooks.map(h=><span key={h}>{h}</span>):<span className="quiet">no live hook recorded</span>}</div></header>
+      <div className="suspense-columns">
+        <SuspenseCell label="Audience knows" value={row.audience_knows}/>
+        <SuspenseCell label="Waiting for" value={row.audience_waits_for}/>
+        <SuspenseCell label="Withheld" value={row.withheld_information}/>
+      </div>
+      {(row.open_bills.length||row.paying_off.length||row.handoff.length)?<footer>
+        {row.open_bills.length>0&&<span><b>Open bill:</b> {row.open_bills.join(' · ')}</span>}
+        {row.paying_off.length>0&&<span><b>Payoff:</b> {row.paying_off.join(' · ')}</span>}
+        {row.handoff.length>0&&<span><b>Handoff:</b> {row.handoff.join(' · ')}</span>}
+      </footer>:null}
+    </article>):<div className="empty-state compact-empty"><h2>No scenes to track yet.</h2><p className="muted">Write a scene, then record what the audience knows or is waiting for under Scene structure.</p></div>}</div>
+  </>
+}
+function SuspenseCell({label,value}){return <div><span>{label}</span><p>{value||'—'}</p></div>}
 
 function Questions({questions}){
   return <>

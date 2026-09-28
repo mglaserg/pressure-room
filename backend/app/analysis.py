@@ -59,3 +59,52 @@ def writers_room_questions(character: dict | None, scenes: list[dict], bills: li
     q.append("Which current solution is working too well, and how can the story make that solution stop working?")
     q.append("What choice would be surprising to the audience but inevitable for this character?")
     return q[:6]
+
+
+def suspense_engine(scenes: list[dict], bills: list[dict], links: list[dict]) -> list[dict]:
+    """Describe live audience tension without pretending it is a quality score."""
+    ordered = sorted(scenes, key=lambda scene: (int(scene.get("scene_no") or 0), scene.get("created_at") or ""))
+    index = {scene.get("id"): i for i, scene in enumerate(ordered)}
+    outgoing: dict[str, list[dict]] = {}
+    for link in links:
+        outgoing.setdefault(link.get("from_scene_id"), []).append(link)
+
+    rows: list[dict] = []
+    for i, scene in enumerate(ordered):
+        open_bills = []
+        paying_off = []
+        for bill in bills:
+            if bill.get("episode_id") not in {None, scene.get("episode_id")} and bill.get("scene_id") not in index:
+                continue
+            intro = index.get(bill.get("scene_id"), 0)
+            payoff = index.get(bill.get("payoff_scene_id"))
+            if payoff == i:
+                paying_off.append(bill.get("title") or "Untitled bill")
+            if bill.get("status") in {"Outstanding", "Escalating"} and intro <= i and (payoff is None or payoff > i):
+                open_bills.append(bill.get("title") or "Untitled bill")
+
+        hooks = []
+        if (scene.get("audience_waits_for") or "").strip():
+            hooks.append("waiting")
+        if (scene.get("withheld_information") or "").strip():
+            hooks.append("withheld")
+        if (scene.get("audience_knows") or "").strip():
+            hooks.append("knowledge gap")
+        if open_bills:
+            hooks.append("unpaid bill")
+        if outgoing.get(scene.get("id")):
+            hooks.append("causal handoff")
+
+        rows.append({
+            "scene": f"S{scene.get('scene_no')}",
+            "scene_id": scene.get("id"),
+            "slugline": scene.get("slugline") or "Untitled scene",
+            "audience_knows": (scene.get("audience_knows") or "").strip(),
+            "audience_waits_for": (scene.get("audience_waits_for") or "").strip(),
+            "withheld_information": (scene.get("withheld_information") or "").strip(),
+            "open_bills": open_bills,
+            "paying_off": paying_off,
+            "active_hooks": hooks,
+            "handoff": [f"{link.get('relation')} → S{next((s.get('scene_no') for s in ordered if s.get('id') == link.get('to_scene_id')), '?')}" for link in outgoing.get(scene.get("id"), [])],
+        })
+    return rows

@@ -5,7 +5,7 @@ import {createDraftSaver} from '@/lib/draft-saver.mjs';
 import {downloadBlob} from '@/lib/portable.mjs';
 import {parseFountain} from '@/lib/fountain.mjs';
 
-const blank = {slugline:'', screenplay_text:'', opening_behavior:'', scene_want:'', obstacle:'', tactic:'', pressure:'', choice:'', start_state:'', end_state:'', cut_on:'', notes:'', moral_delta:0, pov_character_id:null};
+const blank = {slugline:'', screenplay_text:'', opening_behavior:'', scene_want:'', obstacle:'', tactic:'', pressure:'', choice:'', start_state:'', end_state:'', cut_on:'', notes:'', audience_knows:'', audience_waits_for:'', withheld_information:'', moral_delta:0, pov_character_id:null};
 
 export default function WriteView({workspace, episode, sceneId, setSceneId, reload, storageScope, onSceneSaved}) {
   const scenes = useMemo(() => (workspace?.scenes || []).filter(s=>s.episode_id===episode?.id).sort((a,b)=>a.scene_no-b.scene_no), [workspace, episode]);
@@ -204,6 +204,14 @@ function StructurePanel({draft, change, characters}) {
         <Field label="Ending state" value={draft.end_state} onChange={v=>change('end_state',v)}/>
         <Field label="Cut on…" value={draft.cut_on} onChange={v=>change('cut_on',v)}/>
         <Field label="Notes" value={draft.notes} onChange={v=>change('notes',v)}/>
+      </div>
+    </details>
+    <details className="advanced-details suspense-details">
+      <summary><span>Suspense engine</span><small>Audience knowledge · waiting · withheld information</small></summary>
+      <div className="form-grid">
+        <Field label="What does the audience know?" hint="Useful when the character does not" value={draft.audience_knows} onChange={v=>change('audience_knows',v)} placeholder="The audience saw the clerk keep a copy…"/>
+        <Field label="What is the audience waiting for?" hint="The live question" value={draft.audience_waits_for} onChange={v=>change('audience_waits_for',v)} placeholder="Will Mara realize she has been recorded?"/>
+        <Field label="What are we withholding?" hint="Information delayed on purpose" value={draft.withheld_information} onChange={v=>change('withheld_information',v)} placeholder="Who ordered the audit…"/>
       </div>
     </details>
   </section>

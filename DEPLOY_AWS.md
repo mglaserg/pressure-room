@@ -1,6 +1,6 @@
-# Pressure Room on AWS — v0.5.7
+# Pressure Room on AWS — durable storage pass
 
-Pressure Room uses **Amplify for the Next.js frontend** and **Amazon ECS Express Mode for the FastAPI backend**. Google Drive is the canonical production story store; SQLite inside the container is a disposable working cache.
+Pressure Room uses **Amplify for the Next.js frontend** and **Amazon ECS Express Mode for the FastAPI backend**. For production, configure **Supabase/Postgres as durable live story state**. SQLite inside the container remains a disposable working cache, and Google Drive remains the visible `.pressureroom` mirror/export path.
 
 ## Production topology
 
@@ -15,12 +15,28 @@ Amazon ECS Express Mode
   ↓
 FastAPI :8000
   ↓
-ephemeral SQLite cache
+ephemeral SQLite working cache
   ↕
-Google Drive / Pressure Room/*.pressureroom
+Supabase/Postgres              ← durable live state
+  ↕
+Google Drive / Pressure Room/*.pressureroom  ← portable mirror/export
 ```
 
-The browser never needs to call ECS directly, so normal app traffic remains same-origin.
+The browser never receives the Supabase service-role key and never needs to call ECS directly.
+
+## Supabase / Postgres
+
+Run [`backend/supabase/schema.sql`](backend/supabase/schema.sql) once in the Supabase SQL editor, then configure the backend with:
+
+```text
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<server-only service role key>
+PRESSURE_ROOM_SUPABASE_TABLE=pressure_room_projects
+```
+
+The backend uses Supabase PostgREST over HTTPS, so this pass adds no Python database-driver dependency. Each story row stores the existing portable project payload, a content revision, and Drive mirror state. Story mutations compare-and-swap the previous revision; a stale worker receives a conflict instead of overwriting newer content.
+
+Do **not** expose `SUPABASE_SERVICE_ROLE_KEY` to Amplify/browser environment variables.
 
 ## Amplify
 
@@ -38,6 +54,8 @@ After deployment, verify the complete proxy path:
 curl.exe https://main.d23277cgmbx1g0.amplifyapp.com/api/health
 ```
 
+A configured production response reports `durable: "supabase-postgres"`.
+
 ## ECS Express Mode
 
 Backend contract:
@@ -46,10 +64,10 @@ Backend contract:
 container port:    8000
 health check path: /api/health
 minimum tasks:     1
-maximum tasks:     1
+maximum tasks:     1 (recommended for now)
 ```
 
-The single-task cap is deliberate for the current Drive + SQLite single-writer model.
+Supabase removes the container filesystem as the story source of truth. One task is still recommended until Drive mirror draining is moved from the current process-level lock to a distributed queue/lock.
 
 Direct backend check:
 
@@ -72,9 +90,10 @@ Secrets Manager values injected into the task:
 ```text
 GOOGLE_CLIENT_SECRET
 PRESSURE_ROOM_SESSION_KEY
+SUPABASE_SERVICE_ROLE_KEY
 ```
 
-The ECS task execution role must be able to call `secretsmanager:GetSecretValue` for those secret ARNs. If a customer-managed KMS key protects them, add the corresponding `kms:Decrypt` permission.
+`SUPABASE_URL` is not secret, but the service-role key absolutely is. The ECS task execution role must be able to call `secretsmanager:GetSecretValue` for configured secret ARNs. If a customer-managed KMS key protects them, add the corresponding `kms:Decrypt` permission.
 
 OAuth callback:
 
@@ -82,14 +101,22 @@ OAuth callback:
 https://main.d23277cgmbx1g0.amplifyapp.com/api/google/callback
 ```
 
+Pressure Room requests `openid`, `email`, and `drive.file`. A partial Drive grant is rejected and the reconnect path starts a fresh Google authorization. Disconnect revokes the active Google token where possible and invalidates the Pressure Room session.
+
+## Persistence and migration behavior
+
+With Supabase configured:
+
+1. The per-user SQLite cache is hydrated from Supabase first.
+2. If Supabase is empty for that user but the existing cache/Drive workspace contains stories, those projects are seeded into Supabase.
+3. Each mutation is written to Supabase with optimistic concurrency before the local transaction commits.
+4. Google Drive is drained afterward as a portable mirror. Drive ETags continue to protect conditional overwrites.
+5. If an ephemeral cache loses the Drive file ID after a restart, Pressure Room recovers the existing sidecar by its `pressure_room_project_id` app property rather than creating a duplicate.
+
+Without Supabase variables, Pressure Room retains the prior Drive-canonical behavior for compatibility/local use.
+
 ## Deployment automation
 
 `.github/workflows/deploy-backend-ecs-express.yml` builds the backend image, pushes it to ECR, and updates the ECS Express service when backend files change on `main`.
 
 The frontend continues to deploy through Amplify.
-
-## Persistence rule
-
-Do not treat the ECS container filesystem as durable storage. A replacement task can start with an empty local SQLite cache. Once Drive is configured, Pressure Room hydrates that cache from the user's Drive files and writes project changes back to Drive.
-
-If multi-writer collaboration is added later, move canonical live state to PostgreSQL or another concurrency-safe store; keep Drive as export / backup / sharing.

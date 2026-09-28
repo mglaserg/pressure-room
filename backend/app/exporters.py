@@ -24,7 +24,7 @@ def project_markdown(payload: dict) -> str:
         lines += [f"## E{ep['number']} — {ep['title']}", "", ep.get("logline", ""), ""]
         episode_scenes = [s for s in scenes if s["episode_id"] == ep["id"]]
         for s in episode_scenes:
-            lines += [f"### Scene {s['scene_no']} — {s.get('slugline','')}", f"- **Want:** {s.get('scene_want','')}", f"- **Pressure:** {s.get('pressure','')}", f"- **Choice:** {s.get('choice','')}", f"- **Change:** {s.get('start_state','')} → {s.get('end_state','')}", f"- **Cut on:** {s.get('cut_on','')}", ""]
+            lines += [f"### Scene {s['scene_no']} — {s.get('slugline','')}", f"- **Want:** {s.get('scene_want','')}", f"- **Pressure:** {s.get('pressure','')}", f"- **Choice:** {s.get('choice','')}", f"- **Change:** {s.get('start_state','')} → {s.get('end_state','')}", f"- **Cut on:** {s.get('cut_on','')}", f"- **Audience knows:** {s.get('audience_knows','')}", f"- **Audience waits for:** {s.get('audience_waits_for','')}", f"- **Withheld:** {s.get('withheld_information','')}", ""]
         ep_links = [l for l in links if l["episode_id"] == ep["id"]]
         if ep_links:
             lines += ["### Causal chain", ""]
@@ -110,7 +110,7 @@ def pdf_bytes(payload: dict) -> bytes:
     for ep in payload.get("episodes", []):
         story += [Paragraph(escape(f"E{ep['number']} — {ep['title']}"), styles["Heading1"]), Paragraph(escape(ep.get("logline", "")), styles["BodyText"])]
         for s in [x for x in payload.get("scenes", []) if x["episode_id"] == ep["id"]]:
-            story += [Paragraph(escape(f"Scene {s['scene_no']} — {s.get('slugline','')}"), styles["Heading2"]), Paragraph(f"<b>Want:</b> {escape(s.get('scene_want',''))}", styles["BodyText"]), Paragraph(f"<b>Pressure:</b> {escape(s.get('pressure',''))}", styles["BodyText"]), Paragraph(f"<b>Choice:</b> {escape(s.get('choice',''))}", styles["BodyText"]), Spacer(1, 6)]
+            story += [Paragraph(escape(f"Scene {s['scene_no']} — {s.get('slugline','')}"), styles["Heading2"]), Paragraph(f"<b>Want:</b> {escape(s.get('scene_want',''))}", styles["BodyText"]), Paragraph(f"<b>Pressure:</b> {escape(s.get('pressure',''))}", styles["BodyText"]), Paragraph(f"<b>Choice:</b> {escape(s.get('choice',''))}", styles["BodyText"]), Paragraph(f"<b>Audience waits for:</b> {escape(s.get('audience_waits_for',''))}", styles["BodyText"]), Paragraph(f"<b>Withheld:</b> {escape(s.get('withheld_information',''))}", styles["BodyText"]), Spacer(1, 6)]
     story += [PageBreak(), Paragraph("Bill Ledger", styles["Heading1"])]
     for b in payload.get("bills", []):
         story += [Paragraph(escape(f"{b['title']} — {b['status']}"), styles["Heading2"]), Paragraph(f"<b>External:</b> {escape(b.get('external_cost',''))}", styles["BodyText"]), Paragraph(f"<b>Moral:</b> {escape(b.get('moral_cost',''))}", styles["BodyText"]), Spacer(1, 6)]

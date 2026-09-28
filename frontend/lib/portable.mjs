@@ -8,7 +8,7 @@ const FIELDS = {
   branches:'id project_id name is_main created_at',
   characters:'id project_id name role want need core_belief moral_boundary fear temptation moral_score created_at updated_at version',
   episodes:'id project_id branch_id number title logline status created_at updated_at version',
-  scenes:'id episode_id scene_no slugline pov_character_id opening_behavior scene_want obstacle tactic pressure choice start_state end_state cut_on notes screenplay_text moral_delta created_at updated_at version',
+  scenes:'id episode_id scene_no slugline pov_character_id opening_behavior scene_want obstacle tactic pressure choice start_state end_state cut_on notes screenplay_text audience_knows audience_waits_for withheld_information moral_delta created_at updated_at version',
   causal_links:'id episode_id from_scene_id relation to_scene_id note created_at',
   bills:'id project_id episode_id scene_id character_id title external_cost moral_cost status payoff_scene_id created_at updated_at version',
   story_notes:'id project_id object_type object_id body created_at',

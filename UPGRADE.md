@@ -1,3 +1,13 @@
+# Upgrade — durability + Suspense Engine pass
+
+This post-0.7.1 pass adds optional Supabase/Postgres durable live story state and integrates the Suspense Engine into the existing workflow. Run `backend/supabase/schema.sql` and configure `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` to enable it. Without those variables, the existing local/Drive behavior remains intact.
+
+Scene storage gains three additive fields: `audience_knows`, `audience_waits_for`, and `withheld_information`. Diagnose now combines those explicit notes with unpaid bills and THEREFORE/BUT handoffs. Existing scene, episode, project, character, and bill identifiers are preserved.
+
+For cloud deployments, Supabase becomes the durable live story layer; SQLite is a working cache and Drive is a portable mirror/export. The service-role key is backend-only. Keep one backend task for now because Drive mirror draining is still process-serialized.
+
+---
+
 # Upgrade to Pressure Room 0.7.1
 
 This hotfix restores episode creation for stories that already contain episodes. Open the **Episode** picker and choose **+ New episode**. The new episode is created in the selected story path and selected immediately. Creation flushes the current scene draft first, disables repeated submissions while busy and reports failures visibly.

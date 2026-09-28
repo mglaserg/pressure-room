@@ -26,14 +26,17 @@ linked to **Characters**, **Causal Links**, **Bills**, **Notes**, and **Snapshot
 ### Backend
 - FastAPI
 - SQLite as the local / ephemeral working cache
-- Google Drive `.pressureroom` files as the canonical production store
+- optional Supabase/Postgres durable live state, accessed server-side through PostgREST
+- Google Drive `.pressureroom` files as a portable mirror/export when Supabase is configured; canonical fallback when it is not
 - normalized UUID-based schema inherited from V0.1
 - export/import service
 - diagnostic service
 
 ### Data migration
 
-The backend opens the existing `data/pressure_room.db` location and performs additive migrations. V0.1 scene rows receive a `screenplay_text` column; existing project/character/episode/scene/bill IDs remain intact.
+The backend opens the existing `data/pressure_room.db` location and performs additive migrations. Older scene rows receive `screenplay_text` plus the Suspense Engine fields `audience_knows`, `audience_waits_for`, and `withheld_information`; existing project/character/episode/scene/bill IDs remain intact.
+
+When Supabase is configured, each project is persisted as the existing portable project payload in Postgres JSONB with a content revision and Drive mirror state. Mutations use compare-and-swap on the prior revision so a stale worker cannot silently replace a newer story.
 
 ## Information architecture
 
@@ -41,7 +44,7 @@ Top level is intentionally limited to four areas:
 
 1. **Write** — screenplay + optional per-scene structure disclosure
 2. **Structure** — Story, Characters, Causality, Bills, Branches
-3. **Diagnose** — Story MRI, Pressure Lab, optional Room Questions
+3. **Diagnose** — Story MRI, Pressure Lab, Suspense Engine, optional Room Questions
 4. **How to use** — onboarding / friend-friendly guide
 
 The former standalone Writers' Room page is no longer top-level. It is supplementary by design.
@@ -73,9 +76,8 @@ These remain behind **Structure → Branches** so they do not clutter writing.
 
 The conceptual model is already collaboration-friendly: stable UUIDs, timestamps, version counters, normalized entities, and portable snapshots.
 
-The expected V2 migration is:
-- PostgreSQL
-- authenticated users / room membership
+The durable snapshot layer now supports PostgreSQL through Supabase. The remaining V2 collaboration work is:
+- authenticated users / room membership and normalized collaborative ownership
 - FastAPI remains the domain API
 - WebSockets or a realtime layer for presence and structured updates
 - comments / pitches / proposed vs accepted changes

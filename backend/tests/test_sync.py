@@ -254,3 +254,19 @@ def test_disconnect_revokes_google_grant(monkeypatch):
     response=drive_store.disconnect_response(request)
     assert response.status_code==302
     assert invalidated==[(session,{'revoke_google':True})]
+
+
+def test_sidecar_recovers_existing_drive_file_after_cache_identity_loss(story, monkeypatch):
+    drive_store.save_project({}, story)
+    pending = json.loads(db.sync_job(story)['payload_json'])
+    monkeypatch.setattr(drive_store, '_project_files', lambda *a: [{
+        'id': 'existing-file',
+        'appProperties': {'pressure_room_project_id': story},
+    }])
+    monkeypatch.setattr(drive_store, '_read_consistent', lambda *a: (pending, '"etag"'))
+    monkeypatch.setattr(drive_store, '_request', lambda *a, **k: pytest.fail('must not create a duplicate Drive file'))
+
+    result = drive_store.drain_project({}, story)
+
+    assert result['status'] == 'synced'
+    assert db.sync_job(story)['file_id'] == 'existing-file'

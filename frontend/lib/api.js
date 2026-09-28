@@ -150,6 +150,36 @@ function storyMri(scenes, bills) {
     });
 }
 
+
+function suspenseEngine(scenes, bills, links) {
+  const ordered = scenes.slice().sort((a,b)=>Number(a.scene_no||0)-Number(b.scene_no||0));
+  const index = new Map(ordered.map((scene,i)=>[scene.id,i]));
+  const outgoing = new Map();
+  for (const link of links) {
+    const list=outgoing.get(link.from_scene_id)||[];list.push(link);outgoing.set(link.from_scene_id,list);
+  }
+  return ordered.map((scene,i)=>{
+    const open_bills=[]; const paying_off=[];
+    for(const bill of bills){
+      if(bill.episode_id!=null&&bill.episode_id!==scene.episode_id&&!index.has(bill.scene_id))continue;
+      const intro=index.has(bill.scene_id)?index.get(bill.scene_id):0;
+      const payoff=index.has(bill.payoff_scene_id)?index.get(bill.payoff_scene_id):null;
+      if(payoff===i)paying_off.push(bill.title||'Untitled bill');
+      if(['Outstanding','Escalating'].includes(bill.status)&&intro<=i&&(payoff==null||payoff>i))open_bills.push(bill.title||'Untitled bill');
+    }
+    const hooks=[];
+    if((scene.audience_waits_for||'').trim())hooks.push('waiting');
+    if((scene.withheld_information||'').trim())hooks.push('withheld');
+    if((scene.audience_knows||'').trim())hooks.push('knowledge gap');
+    if(open_bills.length)hooks.push('unpaid bill');
+    if((outgoing.get(scene.id)||[]).length)hooks.push('causal handoff');
+    return {scene:`S${scene.scene_no}`,scene_id:scene.id,slugline:scene.slugline||'Untitled scene',
+      audience_knows:(scene.audience_knows||'').trim(),audience_waits_for:(scene.audience_waits_for||'').trim(),
+      withheld_information:(scene.withheld_information||'').trim(),open_bills,paying_off,active_hooks:hooks,
+      handoff:(outgoing.get(scene.id)||[]).map(link=>`${link.relation} → S${ordered.find(x=>x.id===link.to_scene_id)?.scene_no||'?'}`)};
+  });
+}
+
 function writersRoomQuestions(character, scenes, bills) {
   const q = [];
   const outstanding = bills.filter(b => ['Outstanding', 'Escalating'].includes(b.status));
@@ -346,6 +376,9 @@ async function localRequest(path, options = {}) {
       cut_on: d.cut_on || '',
       notes: d.notes || '',
       screenplay_text: d.screenplay_text || '',
+      audience_knows: d.audience_knows || '',
+      audience_waits_for: d.audience_waits_for || '',
+      withheld_information: d.withheld_information || '',
       moral_delta: Number(d.moral_delta || 0),
       created_at: ts,
       updated_at: ts,
@@ -501,6 +534,7 @@ async function localRequest(path, options = {}) {
       mri: storyMri(scenes, bills),
       pressure_moves: PRESSURE_MOVES,
       questions: writersRoomQuestions(protagonist, scenes, bills),
+      suspense: suspenseEngine(scenes, bills, db.causal_links.filter(l => l.episode_id === episode.id)),
     };
   }
 

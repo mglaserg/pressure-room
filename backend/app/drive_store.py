@@ -82,7 +82,7 @@ def _invalidate_session(session: dict | None, *, revoke_google: bool) -> None:
     if sid:
         db.bind_default_cache()
         db.execute('DELETE FROM revoked_sessions WHERE expires_at<?', [time.time()])
-        db.execute('INSERT OR REPLACE INTO revoked_sessions(sid,expires_at) VALUES(?,?)', [sid,time.time()+SESSION_TTL])
+        db.execute('INSERT INTO revoked_sessions(sid,expires_at) VALUES(?,?) ON CONFLICT(sid) DO UPDATE SET expires_at=excluded.expires_at', [sid,time.time()+SESSION_TTL])
     if sub:
         ACCESS_CACHE.pop(sub, None)
         CONDITIONAL_WRITE_CHECKS.pop(sub, None)
@@ -216,8 +216,10 @@ def require_session(request: Request) -> dict:
 
 
 def status(request: Request) -> dict:
+    from . import supabase_store
+    durable = supabase_store.storage_mode()
     if not enabled():
-        return {"required": False, "configured": False, "connected": False, "storage": "local-sqlite"}
+        return {"required": False, "configured": False, "connected": False, "storage": "local-sqlite", "durable": durable}
     error = configuration_error()
     session = session_from_request(request) if not error else None
     return {
@@ -225,6 +227,7 @@ def status(request: Request) -> dict:
         "configured": error is None,
         "connected": bool(session),
         "storage": "google-drive",
+        "durable": durable,
         "picker_configured": bool(GOOGLE_PICKER_API_KEY and GOOGLE_CLOUD_PROJECT_NUMBER),
         "email": session.get("email") if session else None,
         "drive_scope_granted": (DRIVE_SCOPE in set(session.get("scopes") or [])) if session and "scopes" in session else None,
@@ -605,6 +608,18 @@ def _write_sidecar(session, project_id, job):
             if check != payload:
                 raise HTTPException(409, 'Drive changed immediately after saving. Reload to review both versions.')
         return file_id, etag
+    # Recover a previously-created sidecar after an ephemeral cache restart.
+    matches = [item for item in _project_files(session)
+               if (item.get('appProperties') or {}).get('pressure_room_project_id') == project_id]
+    if len(matches) > 1:
+        raise HTTPException(409, 'Multiple Drive files claim this story. Resolve the duplicate in Drive before syncing.')
+    if matches:
+        file_id = matches[0]['id']
+        remote, current_etag = _read_consistent(session, file_id)
+        db.set_sync(project_id, file_id=file_id, etag=current_etag)
+        if remote == payload:
+            return file_id, current_etag
+        raise HTTPException(409, 'Drive has a different copy of this story. Keep your edits as a recovery copy or explicitly load the Drive version.')
     # A stable, pre-generated ID survives ambiguous create responses.
     file_id = _request(session,'GET',f'{DRIVE_FILES_URL}/generateIds',params={'count':1}).json()['ids'][0]
     db.set_sync(project_id, file_id=file_id)
@@ -690,11 +705,28 @@ def sync_all_from_drive(session: dict) -> dict:
 
 def ensure_local(session: dict, max_age_seconds: float = 15.0) -> None:
     sub=_bind_user_cache(session)
+    from . import supabase_store
+    if supabase_store.enabled():
+        durable = supabase_store.hydrate_user(session)
+        if durable["remote"] == 0:
+            # First migration reconciles the old Drive-canonical workspace before
+            # seeding Postgres, so a stale surviving cache cannot outrank Drive.
+            try:
+                sync_all_from_drive(session)
+            except (HTTPException, httpx.HTTPError):
+                if not db.get_projects():
+                    raise
+            if db.get_projects():
+                supabase_store.save_all(session)
+        if db.get_projects():
+            return
     last_sync=LAST_SYNC_AT.get(sub,0.0)
     if last_sync and time.monotonic()-last_sync<max_age_seconds:
         return
     try:
         sync_all_from_drive(session)
+        if supabase_store.enabled() and db.get_projects():
+            supabase_store.save_all(session)
     except (HTTPException, httpx.HTTPError):
         if not db.get_projects():
             raise
