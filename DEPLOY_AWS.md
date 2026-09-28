@@ -22,7 +22,7 @@ Supabase/Postgres              ← durable live state
 Google Drive / Pressure Room/*.pressureroom  ← portable mirror/export
 ```
 
-The browser never receives the Supabase service-role key and never needs to call ECS directly.
+The browser never receives the Supabase secret key and never needs to call ECS directly.
 
 ## Supabase / Postgres
 
@@ -30,13 +30,13 @@ Run [`backend/supabase/schema.sql`](backend/supabase/schema.sql) once in the Sup
 
 ```text
 SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<server-only service role key>
+SUPABASE_SECRET_KEY=<server-only sb_secret_... key>
 PRESSURE_ROOM_SUPABASE_TABLE=pressure_room_projects
 ```
 
 The backend uses Supabase PostgREST over HTTPS, so this pass adds no Python database-driver dependency. Each story row stores the existing portable project payload, a content revision, and Drive mirror state. Story mutations compare-and-swap the previous revision; a stale worker receives a conflict instead of overwriting newer content.
 
-Do **not** expose `SUPABASE_SERVICE_ROLE_KEY` to Amplify/browser environment variables.
+Do **not** expose `SUPABASE_SECRET_KEY` to Amplify/browser environment variables.
 
 ## Amplify
 
@@ -90,10 +90,10 @@ Secrets Manager values injected into the task:
 ```text
 GOOGLE_CLIENT_SECRET
 PRESSURE_ROOM_SESSION_KEY
-SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_SECRET_KEY
 ```
 
-`SUPABASE_URL` is not secret, but the service-role key absolutely is. The ECS task execution role must be able to call `secretsmanager:GetSecretValue` for configured secret ARNs. If a customer-managed KMS key protects them, add the corresponding `kms:Decrypt` permission.
+`SUPABASE_URL` is not secret, but the secret key absolutely is. The ECS task execution role must be able to call `secretsmanager:GetSecretValue` for configured secret ARNs. If a customer-managed KMS key protects them, add the corresponding `kms:Decrypt` permission.
 
 OAuth callback:
 

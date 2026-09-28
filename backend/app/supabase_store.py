@@ -9,21 +9,23 @@ from fastapi import HTTPException
 from . import db
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "")
 SUPABASE_TABLE = os.getenv("PRESSURE_ROOM_SUPABASE_TABLE", "pressure_room_projects")
 HTTP_TIMEOUT = 15.0
 _TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def enabled() -> bool:
-    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+    return bool(SUPABASE_URL and SUPABASE_SECRET_KEY)
 
 
 def configuration_error() -> str | None:
-    if not SUPABASE_URL and not SUPABASE_SERVICE_ROLE_KEY:
+    if not SUPABASE_URL and not SUPABASE_SECRET_KEY:
         return None
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        return "Supabase requires both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+    if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
+        return "Supabase requires both SUPABASE_URL and SUPABASE_SECRET_KEY."
+    if SUPABASE_SECRET_KEY.startswith("sb_publishable_"):
+        return "SUPABASE_SECRET_KEY must be a server-side sb_secret_... key; publishable keys cannot back Pressure Room durable writes."
     if not SUPABASE_URL.startswith("https://"):
         return "SUPABASE_URL must use HTTPS."
     if not _TABLE_RE.fullmatch(SUPABASE_TABLE):
@@ -47,8 +49,7 @@ def _headers(*, prefer: str | None = None) -> dict[str, str]:
     if error:
         raise HTTPException(503, error)
     headers = {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": SUPABASE_SECRET_KEY,
         "Content-Type": "application/json",
     }
     if prefer:

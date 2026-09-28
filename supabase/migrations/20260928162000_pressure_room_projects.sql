@@ -1,3 +1,6 @@
+-- Canonical Supabase migration for GitHub integration.
+-- Keep in sync with backend/supabase/schema.sql for manual setup fallback.
+
 -- Pressure Room durable story state for Supabase/Postgres.
 -- Run once in the Supabase SQL editor before setting backend credentials.
 

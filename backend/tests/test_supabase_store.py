@@ -38,9 +38,20 @@ def test_suspense_engine_tracks_audience_debt_and_handoff():
     assert rows[1]["paying_off"] == ["The altered timestamp"]
 
 
+def test_supabase_rejects_publishable_key_for_durable_backend(monkeypatch):
+    monkeypatch.setattr(supabase_store, "SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setattr(supabase_store, "SUPABASE_SECRET_KEY", "sb_publishable_not-a-server-secret")
+
+    error = supabase_store.configuration_error()
+
+    assert error is not None
+    assert "sb_secret_" in error
+    assert "publishable" in error
+
+
 def test_supabase_compare_and_swap_uses_existing_story_revision(story, monkeypatch):
     monkeypatch.setattr(supabase_store, "SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setattr(supabase_store, "SUPABASE_SERVICE_ROLE_KEY", "service-secret")
+    monkeypatch.setattr(supabase_store, "SUPABASE_SECRET_KEY", "service-secret")
     revision = db.project_revision(story)
     calls = []
 
@@ -56,12 +67,13 @@ def test_supabase_compare_and_swap_uses_existing_story_revision(story, monkeypat
     assert method == "PATCH"
     assert kwargs["params"]["revision"] == f"eq.{revision}"
     assert kwargs["json"]["payload"]["project"]["id"] == story
-    assert kwargs["headers"]["Authorization"] == "Bearer service-secret"
+    assert kwargs["headers"]["apikey"] == "service-secret"
+    assert "Authorization" not in kwargs["headers"]
 
 
 def test_supabase_stale_compare_and_swap_returns_conflict(story, monkeypatch):
     monkeypatch.setattr(supabase_store, "SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setattr(supabase_store, "SUPABASE_SERVICE_ROLE_KEY", "service-secret")
+    monkeypatch.setattr(supabase_store, "SUPABASE_SECRET_KEY", "service-secret")
 
     def fake_request(*args, **kwargs):
         return httpx.Response(200, json=[])
@@ -77,7 +89,7 @@ def test_supabase_stale_compare_and_swap_returns_conflict(story, monkeypatch):
 
 def test_supabase_hydrate_restores_story_and_drive_state(story, monkeypatch):
     monkeypatch.setattr(supabase_store, "SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setattr(supabase_store, "SUPABASE_SERVICE_ROLE_KEY", "service-secret")
+    monkeypatch.setattr(supabase_store, "SUPABASE_SECRET_KEY", "service-secret")
     payload = db.project_payload(story, include_snapshots=True)
     payload["project"]["title"] = "Durable title"
 

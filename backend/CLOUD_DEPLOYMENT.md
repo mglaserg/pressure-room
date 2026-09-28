@@ -20,11 +20,11 @@ Create a Supabase project and run `backend/supabase/schema.sql` in its SQL edito
 
 ```text
 SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service-role key>
+SUPABASE_SECRET_KEY=<sb_secret_... key>
 PRESSURE_ROOM_SUPABASE_TABLE=pressure_room_projects
 ```
 
-The FastAPI server talks to Postgres through Supabase PostgREST using the already-installed `httpx` package. No browser code receives the service-role key.
+The FastAPI server talks to Postgres through Supabase PostgREST using the already-installed `httpx` package. No browser code receives the secret key.
 
 The table is intentionally simple: one row per Google user + story, containing the existing portable project payload as JSONB, the project revision hash, Drive mirror state, and update timestamp. This gives the current domain model durable storage without prematurely rewriting every entity into a new relational collaboration schema.
 
@@ -54,7 +54,7 @@ cd backend
 uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Keep `PRESSURE_ROOM_SESSION_KEY`, `GOOGLE_CLIENT_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` in the backend secret store. Do not commit them or expose them through Next.js public variables.
+Keep `PRESSURE_ROOM_SESSION_KEY`, `GOOGLE_CLIENT_SECRET`, and `SUPABASE_SECRET_KEY` in the backend secret store. Do not commit them or expose them through Next.js public variables.
 
 ## 4. Backend variables
 
@@ -65,7 +65,7 @@ PRESSURE_ROOM_SESSION_KEY=...
 PRESSURE_ROOM_PUBLIC_URL=https://YOUR-AMPLIFY-DOMAIN
 PRESSURE_ROOM_ALLOWED_EMAIL=you@example.com
 SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_SECRET_KEY=...
 PRESSURE_ROOM_SUPABASE_TABLE=pressure_room_projects
 ```
 

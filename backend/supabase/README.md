@@ -10,15 +10,17 @@ Pressure Room can use Supabase/Postgres as its durable live story store while ke
 
 ```text
 SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service-role key>
+SUPABASE_SECRET_KEY=<sb_secret_... key>
 PRESSURE_ROOM_SUPABASE_TABLE=pressure_room_projects
 ```
+
+Pressure Room currently does **not** use `SUPABASE_PUBLISHABLE_KEY`. The browser authenticates through Google and all durable Supabase writes are performed by FastAPI after its own authorization checks, so the server-side `sb_secret_...` key is the correct credential. A publishable key would map unauthenticated requests to the low-privilege `anon` role and is intentionally blocked by this schema.
 
 4. Restart the backend and check `/api/ready`. A configured deployment reports `durable: "supabase-postgres"`.
 
 ## Security
 
-The service-role key bypasses normal RLS and must never be sent to the browser. Pressure Room only uses it from FastAPI. The table has RLS enabled and access revoked from `anon` and `authenticated` roles as defense in depth.
+The secret key bypasses normal RLS and must never be sent to the browser. Pressure Room only uses it from FastAPI. The table has RLS enabled and access revoked from `anon` and `authenticated` roles as defense in depth.
 
 ## Migration
 
