@@ -1,3 +1,18 @@
+# Upgrade — multi-user foundation
+
+This pass adds Supabase magic-link accounts, owner/editor/viewer project membership, email invitations, live presence heartbeats and collaboration event plumbing. It intentionally does **not** add simultaneous CRDT screenplay editing yet.
+
+1. Deploy the new migrations in `supabase/migrations/`, especially `20260929124500_multi_user_foundation.sql`.
+2. In Supabase Auth, set the Site URL and allowed Redirect URL to the public Pressure Room frontend origin.
+3. Add `PRESSURE_ROOM_AUTH_ENABLED=true` to the ECS container environment and keep `SUPABASE_SECRET_KEY` server-only through Secrets Manager.
+4. Redeploy ECS and the frontend together. `/api/ready` should report `auth: "supabase-magic-link"`.
+5. Sign in with the same email as the currently connected Google account on the first run. Pressure Room can then claim the older Google-partitioned Supabase rows without changing project IDs.
+6. Test owner/editor/viewer behavior before inviting real collaborators. Configure custom SMTP in Supabase before inviting addresses outside the Supabase organization.
+
+Browser-local mode remains available without an account. Google Drive remains optional and, in multi-user mode, only the project owner controls the Drive mirror.
+
+---
+
 # Upgrade — durability + Suspense Engine pass
 
 This post-0.7.1 pass adds optional Supabase/Postgres durable live story state and integrates the Suspense Engine into the existing workflow. Run `backend/supabase/schema.sql` and configure `SUPABASE_URL` plus `SUPABASE_SECRET_KEY` to enable it. Without those variables, the existing local/Drive behavior remains intact.

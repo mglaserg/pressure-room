@@ -1,27 +1,43 @@
-# Supabase durable storage
+# Supabase durable storage + magic-link identity
 
-Pressure Room can use Supabase/Postgres as its durable live story store while keeping SQLite as a disposable working cache and Google Drive as the portable `.pressureroom` mirror.
+Pressure Room uses Supabase/Postgres as the durable live story store while SQLite remains a disposable per-user working cache. With magic-link auth enabled, Google Drive is an optional owner-controlled `.pressureroom` mirror/export rather than the account identity.
 
 ## Setup
 
 1. Create a Supabase project.
-2. Run `schema.sql` in the Supabase SQL editor.
+2. Apply `supabase/migrations/` through the GitHub integration, or run `schema.sql` manually for a fresh setup.
 3. Set these variables on the FastAPI backend only:
 
 ```text
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SECRET_KEY=<sb_secret_... key>
 PRESSURE_ROOM_SUPABASE_TABLE=pressure_room_projects
+PRESSURE_ROOM_AUTH_ENABLED=true
 ```
 
-Pressure Room currently does **not** use `SUPABASE_PUBLISHABLE_KEY`. The browser authenticates through Google and all durable Supabase writes are performed by FastAPI after its own authorization checks, so the server-side `sb_secret_...` key is the correct credential. A publishable key would map unauthenticated requests to the low-privilege `anon` role and is intentionally blocked by this schema.
+`PRESSURE_ROOM_PUBLIC_URL` and `PRESSURE_ROOM_SESSION_KEY` are also required for magic-link sessions.
 
-4. Restart the backend and check `/api/ready`. A configured deployment reports `durable: "supabase-postgres"`.
+Pressure Room still does **not** need `SUPABASE_PUBLISHABLE_KEY`: the browser talks only to the same-origin FastAPI API. FastAPI asks Supabase Auth to send magic links, validates the returned Supabase access token once, then issues an encrypted HttpOnly Pressure Room session cookie. Durable database access remains server-side.
+
+4. In Supabase **Authentication → URL Configuration**, set the Site URL to your public Pressure Room frontend origin and add that origin to Redirect URLs.
+5. Restart the backend and check `/api/ready`. A configured deployment reports:
+
+```json
+{
+  "ok": true,
+  "durable": "supabase-postgres",
+  "auth": "supabase-magic-link"
+}
+```
+
+## Email delivery
+
+Supabase's built-in SMTP is intended for testing and, by default, only sends to pre-authorized organization addresses. Configure custom SMTP before inviting arbitrary external collaborators.
 
 ## Security
 
-The secret key bypasses normal RLS and must never be sent to the browser. Pressure Room only uses it from FastAPI. The table has RLS enabled and access revoked from `anon` and `authenticated` roles as defense in depth.
+The secret key bypasses RLS and must never be sent to the browser. RLS remains enabled and `anon`/`authenticated` table grants are revoked as defense in depth. The API enforces owner/editor/viewer permissions before story writes or sharing actions. Invitation bearer tokens are stored only as SHA-256 hashes.
 
-## Migration
+## Existing projects
 
-No manual story conversion is required. On first authenticated use after enabling Supabase, an empty durable workspace is seeded from the user's existing Pressure Room cache/Drive workspace. Back up important stories before changing production storage, as with any storage migration.
+When magic-link auth is first enabled, a user who still has the matching Google Drive session can automatically claim the older Google-partitioned durable workspace when the Google email matches the magic-link email. Existing project IDs are preserved. If the old Google session is gone, reconnect that same Google account once so Pressure Room can prove and migrate the legacy partition.

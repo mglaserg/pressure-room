@@ -672,8 +672,12 @@ def drain_project(session, project_id):
     return db.sync_status(project_id)
 
 
-def sync_all_from_drive(session: dict) -> dict:
-    sub = _bind_user_cache(session)
+def sync_all_from_drive(session: dict, *, cache_sub: str | None = None) -> dict:
+    sub = str(cache_sub or "").strip()
+    if sub:
+        db.bind_user_cache(sub)
+    else:
+        sub = _bind_user_cache(session)
     with SYNC_LOCK:
         files=_project_files(session)
         # Never erase local or queued work just because a file disappeared remotely.

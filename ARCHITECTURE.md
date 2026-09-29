@@ -27,7 +27,8 @@ linked to **Characters**, **Causal Links**, **Bills**, **Notes**, and **Snapshot
 - FastAPI
 - SQLite as the local / ephemeral working cache
 - optional Supabase/Postgres durable live state, accessed server-side through PostgREST
-- Google Drive `.pressureroom` files as a portable mirror/export when Supabase is configured; canonical fallback when it is not
+- optional Supabase Auth magic-link identity with owner/editor/viewer project membership
+- Google Drive `.pressureroom` files as an owner-controlled portable mirror/export when Supabase Auth is enabled; canonical legacy fallback when it is not
 - normalized UUID-based schema inherited from V0.1
 - export/import service
 - diagnostic service
@@ -76,13 +77,13 @@ These remain behind **Structure → Branches** so they do not clutter writing.
 
 The conceptual model is already collaboration-friendly: stable UUIDs, timestamps, version counters, normalized entities, and portable snapshots.
 
-The durable snapshot layer now supports PostgreSQL through Supabase. The remaining V2 collaboration work is:
-- authenticated users / room membership and normalized collaborative ownership
-- FastAPI remains the domain API
-- WebSockets or a realtime layer for presence and structured updates
+The durable snapshot layer now supports PostgreSQL through Supabase, and the multi-user foundation includes magic-link identity, owner/editor/viewer membership, email invitations, presence heartbeats and collaboration event history. FastAPI remains the domain API and structured story writes continue to use optimistic concurrency.
+
+The remaining collaboration work is deliberately narrower:
+- replace heartbeat polling with a true realtime transport when needed
 - comments / pitches / proposed vs accepted changes
-- optimistic concurrency for structured story objects
-- CRDT only if simultaneous screenplay-text editing actually requires it
+- live cursors and simultaneous screenplay-text editing
+- use an established CRDT such as Yjs only for the text surface that actually needs concurrent character-level merges
 
 ## GitHub
 

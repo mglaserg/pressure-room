@@ -30,3 +30,8 @@
 :where(button,a,summary):focus-visible{outline:2px solid var(--accent-strong);outline-offset:4px}
 .save-state.uncached{color:var(--danger)}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Multi-user foundation */
+.presence-pill{display:inline-flex;align-items:center;min-height:34px;padding:0 .7rem;border:1px solid var(--border-subtle);border-radius:999px;background:var(--overlay-faint);font-size:var(--type-xs);color:var(--text-muted);white-space:nowrap}
+.auth-form{width:min(440px,100%)}
+.collaboration-details summary{display:flex;align-items:center;justify-content:space-between;gap:1rem}.collaboration-details summary small{color:var(--text-muted);font-weight:400}.collaborator-row{display:flex;align-items:center;justify-content:space-between;gap:.8rem;padding:.7rem .8rem;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--overlay-faint)}.collaborator-row>div{display:grid;gap:.1rem;min-width:0}.collaborator-row strong{overflow:hidden;text-overflow:ellipsis}.collaborator-row small{color:var(--text-muted)}.pending-invites{display:grid;gap:.25rem;padding:.65rem .8rem;border-left:2px solid var(--accent-border);color:var(--text-muted);font-size:var(--type-xs)}

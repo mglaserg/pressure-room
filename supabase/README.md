@@ -2,4 +2,14 @@
 
 Pressure Room's GitHub integration deploys database changes from `supabase/migrations/`.
 
-The initial migration creates `public.pressure_room_projects`, enables RLS, and revokes browser roles. Runtime durable writes still come from the FastAPI backend using `SUPABASE_SECRET_KEY` (`sb_secret_...`). No Supabase secret belongs in this directory or in Git.
+The migrations now create:
+
+- `public.pressure_room_projects` — durable story snapshots
+- `public.project_members` — owner/editor/viewer access
+- `public.project_invites` — hashed, expiring email invitations
+- `public.project_presence` — lightweight collaborator presence
+- `public.project_events` — collaboration/activity event plumbing
+
+All of these tables have RLS enabled and browser roles revoked. Runtime reads/writes go through FastAPI using the server-only `SUPABASE_SECRET_KEY` (`sb_secret_...`); no Supabase secret belongs in this directory or in Git.
+
+After the migrations deploy, configure **Authentication → URL Configuration** in Supabase. Set the Site URL to the public Pressure Room frontend origin and allow that same origin as a redirect URL. Magic-link redirects return to `/?auth_callback=1`.

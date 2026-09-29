@@ -691,7 +691,7 @@ export async function remoteApi(path, options = {}) {
 }
 
 function shouldForceRemote(path) {
-  return path.startsWith('/google/') || path === '/health' || path === '/ready';
+  return path.startsWith('/google/') || path.startsWith('/auth/') || path === '/health' || path === '/ready';
 }
 
 export async function api(path, options = {}) {

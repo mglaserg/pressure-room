@@ -33,6 +33,9 @@ export default function Home(){
   const [newStory,setNewStory]=useState(false);
   const [error,setError]=useState('');
   const [drive,setDrive]=useState(null);
+  const [auth,setAuth]=useState(null);
+  const [authMessage,setAuthMessage]=useState('');
+  const [presence,setPresence]=useState([]);
   const [driveNotice,setDriveNotice]=useState('');
   const [storageMode,setStorageModeState]=useState('');
   const [projectsReady,setProjectsReady]=useState(false);
@@ -61,46 +64,85 @@ export default function Home(){
   }
 
   async function boot(){
+    const authStatus=await remoteApi('/auth/status').catch(()=>({enabled:false,configured:false,authenticated:false,error:'Account status could not be loaded.'}));
+    setAuth(authStatus);
     const status=await remoteApi('/google/status').catch(()=>({configured:false,required:false,connected:false,error:'Google Drive status could not be loaded.'}));
     setDrive(status);
-    const preferred=getStorageMode();
+    let preferred=getStorageMode();
 
     if(preferred==='local'){
       setStorageModeState('local');
       await loadProjects();
-      return;
+      return authStatus;
+    }
+
+    if(authStatus.enabled){
+      if(!authStatus.authenticated){
+        setStorageModeState('');
+        setProjectsReady(true);
+        return authStatus;
+      }
+      if(preferred==='drive'||!preferred){setStorageMode('cloud');preferred='cloud'}
+      setStorageModeState('cloud');
+      await loadProjects();
+      return authStatus;
     }
 
     if(preferred==='drive'){
       if(status.connected){
         setStorageModeState('drive');
         await loadProjects();
-        return;
+        return authStatus;
       }
       setStorageMode('');
       setStorageModeState('');
       setProjectsReady(true);
-      return;
+      return authStatus;
     }
 
     if(status.connected){
       setStorageMode('drive');
       setStorageModeState('drive');
       await loadProjects();
-      return;
+      return authStatus;
     }
 
     setStorageModeState('');
     setProjectsReady(true);
+    return authStatus;
   }
 
   useEffect(()=>{
-    const params=new URLSearchParams(window.location.search);
-    if(params.get('google_drive')==='permission_required'){
-      setDriveNotice('Google connected, but Drive edit permission was not granted. Connect again and allow Pressure Room to create and edit the files you use with it.');
-      window.history.replaceState({},'',window.location.pathname);
+    let cancelled=false;
+    async function start(){
+      const params=new URLSearchParams(window.location.search);
+      const hash=new URLSearchParams(window.location.hash.replace(/^#/,''));
+      if(hash.get('error_description'))throw new Error(hash.get('error_description'));
+      const accessToken=hash.get('access_token');
+      if(accessToken||params.get('invite'))setStorageMode('cloud');
+      if(accessToken){
+        await remoteApi('/auth/session',{method:'POST',body:JSON.stringify({access_token:accessToken})});
+        window.history.replaceState({},'',window.location.pathname+window.location.search);
+        setAuthMessage('Signed in. Opening your room…');
+      }
+      if(params.get('google_drive')==='permission_required'){
+        setDriveNotice('Google connected, but Drive edit permission was not granted. Connect again and allow Pressure Room to create and edit the files you use with it.');
+        params.delete('google_drive');
+        const q=params.toString();
+        window.history.replaceState({},'',window.location.pathname+(q?`?${q}`:''));
+      }
+      const status=await boot();
+      const invite=params.get('invite');
+      if(invite&&status?.authenticated){
+        const accepted=await remoteApi('/auth/invites/accept',{method:'POST',body:JSON.stringify({token:invite})});
+        params.delete('invite');params.delete('auth_callback');
+        const q=params.toString();
+        window.history.replaceState({},'',window.location.pathname+(q?`?${q}`:''));
+        if(!cancelled){setAuthMessage('Invitation accepted.');await loadProjects(accepted.project_id)}
+      }
     }
-    boot().catch(e=>setError(e.message));
+    start().catch(e=>!cancelled&&setError(e.message));
+    return()=>{cancelled=true};
   },[]);
 
   const project=workspace?.project;
@@ -114,6 +156,17 @@ export default function Home(){
       if(!eps.some(e=>e.id===episodeId)){setEpisodeId(eps[0]?.id||'');setSceneId('')}
     }
   },[branchId,workspace,episodeId]);
+
+  useEffect(()=>{
+    if(!auth?.authenticated||storageMode==='local'||!projectId){setPresence([]);return}
+    let alive=true;
+    async function heartbeat(){
+      try{const rows=await remoteApi(`/projects/${projectId}/presence`,{method:'POST'});if(alive)setPresence(rows)}catch{}
+    }
+    heartbeat();
+    const timer=setInterval(heartbeat,15000);
+    return()=>{alive=false;clearInterval(timer)};
+  },[auth?.authenticated,storageMode,projectId]);
 
   async function reload(preferScene){if(projectId)await loadWorkspace(projectId,preferScene)}
   async function createEpisode(){
@@ -153,7 +206,19 @@ export default function Home(){
     await loadProjects();
   }
 
+  async function chooseCloudMode(){
+    if(!auth?.authenticated){setStorageModeState('');return}
+    setStorageMode('cloud');
+    setStorageModeState('cloud');
+    await loadProjects();
+  }
+
   function chooseDriveMode(){
+    if(auth?.enabled){
+      if(drive?.connected){void chooseCloudMode();return}
+      window.location.href='/api/google/connect';
+      return;
+    }
     setStorageMode('drive');
     setStorageModeState('drive');
     if(drive?.connected){window.location.reload();return;}
@@ -176,8 +241,10 @@ export default function Home(){
     }
   }
 
-  const showChooser = storageMode==='' && drive!==null && !workspace;
-  const showDriveEmpty = storageMode==='drive' && drive?.connected && projectsReady && projects.length===0 && !workspace;
+  const showLogin = auth?.enabled && !auth.authenticated && storageMode!=='local' && !workspace;
+  const showChooser = !auth?.enabled && storageMode==='' && drive!==null && !workspace;
+  const showDriveEmpty = !auth?.enabled && storageMode==='drive' && drive?.connected && projectsReady && projects.length===0 && !workspace;
+  const showCloudEmpty = auth?.authenticated && storageMode==='cloud' && projectsReady && projects.length===0 && !workspace;
   const showLocalEmpty = storageMode==='local' && projectsReady && projects.length===0 && !workspace;
 
   if(error&&!workspace)return <main className="boot boot-error">
@@ -185,6 +252,8 @@ export default function Home(){
     <div className="boot-copy"><span className="eyebrow">The room is closed</span><h1>Pressure Room</h1><p>{error}</p><p className="muted">The interface loaded, but it could not reach the story service.</p></div>
     <div className="boot-actions"><button className="button" onClick={()=>{setError('');boot().catch(e=>setError(e.message))}}>Try again</button><a className="button secondary" href="/api/health" target="_blank" rel="noreferrer">API health</a></div>
   </main>;
+
+  if(showLogin)return <AuthGate auth={auth} message={authMessage} onLocal={chooseLocalMode} onSent={setAuthMessage}/>;
 
   if(showChooser)return <main className="boot">
     <BrandMark large/>
@@ -203,6 +272,23 @@ export default function Home(){
     </div>
   </main>;
 
+  if(showCloudEmpty)return <>
+    <main className="boot">
+      <BrandMark large/>
+      <div className="boot-copy">
+        <span className="eyebrow">Signed in as {auth?.email}</span>
+        <h1>Your room is empty</h1>
+        <p>Create your first story. Supabase keeps the live project state; Google Drive can be connected later as an optional portable mirror.</p>
+        {authMessage&&<p className="form-message">{authMessage}</p>}
+      </div>
+      <div className="boot-actions">
+        <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
+        {drive?.configured&&!drive?.connected&&<button className="button secondary" onClick={chooseDriveMode}>Connect Google Drive</button>}
+      </div>
+    </main>
+    <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
+  </>;
+
   if(showDriveEmpty)return <>
     <main className="boot">
       <BrandMark large/>
@@ -219,7 +305,7 @@ export default function Home(){
         <button className="button secondary" disabled={driveImportBusy} onClick={()=>driveImport.current?.click()}>{driveImportBusy?'Importing…':'Import Pressure Room project'}</button>
       </div>
     </main>
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
@@ -239,11 +325,11 @@ export default function Home(){
       </div>
     </main>
     <ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
-  if(drive===null||(!workspace&&!(projectsReady&&projects.length===0)))return <main className="boot"><BrandMark large/><div className="boot-copy"><span className="eyebrow">Pressure Room</span><h1>Opening the room</h1><p className="muted">{storageMode==='drive'&&drive?.connected?'Bringing your stories down from Google Drive.':storageMode==='local'?'Opening your local room on this device.':'Preparing the room.'}</p></div><div className="boot-pulse" aria-hidden="true"><i/><i/><i/></div></main>;
+  if(drive===null||(!workspace&&!(projectsReady&&projects.length===0)))return <main className="boot"><BrandMark large/><div className="boot-copy"><span className="eyebrow">Pressure Room</span><h1>Opening the room</h1><p className="muted">{storageMode==='cloud'?'Opening your cloud workspace.':storageMode==='drive'&&drive?.connected?'Bringing your stories down from Google Drive.':storageMode==='local'?'Opening your local room on this device.':'Preparing the room.'}</p></div><div className="boot-pulse" aria-hidden="true"><i/><i/><i/></div></main>;
 
   return <main className="app-shell">
     <header className="topbar">
@@ -258,7 +344,7 @@ export default function Home(){
         {branchEpisodes.length?<div className="episode-context"><label className="context-select"><span>Episode</span><select aria-label="Episode" disabled={episodeBusy} value={episode?.id||''} onChange={e=>{const id=e.target.value;if(id==='__new_episode__'){void createEpisode();return;}setEpisodeId(id);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}<option value="__new_episode__">+ New episode</option></select></label><button className="context-delete" type="button" disabled={episodeBusy||!episode} onClick={deleteEpisode} aria-label={episode?`Delete Episode ${episode.number}`:'Delete episode'} title="Delete episode">×</button></div>:<button className="context-add" disabled={episodeBusy} onClick={createEpisode}>{episodeBusy?'Creating…':'+ Episode'}</button>}
       </div>
 
-      <div className="top-actions"><button className="button compact room-menu-trigger" aria-haspopup="dialog" onClick={()=>setRoomMenu(true)}>Room <span aria-hidden="true">☰</span></button></div>
+      <div className="top-actions">{auth?.authenticated&&<span className="presence-pill" title={presence.map(p=>p.email).filter(Boolean).join(', ')}>{presence.length<=1?'You':`${presence.length} in room`}</span>}<button className="button compact room-menu-trigger" aria-haspopup="dialog" onClick={()=>setRoomMenu(true)}>Room <span aria-hidden="true">☰</span></button></div>
     </header>
 
     <nav className="primary-nav" aria-label="Primary workspace">
@@ -268,15 +354,32 @@ export default function Home(){
     {error&&<div className="sync-notice" role="alert"><p>{error}</p><button className="button secondary" onClick={()=>setError('')}>Dismiss</button></div>}
     <SyncNotice workspace={workspace} onResolved={id=>loadProjects(id)} onBackup={()=>setShare(true)}/>
     <div className="workspace">
-      {mode==='write'&&<WriteView onSceneSaved={(id,data,result)=>setWorkspace(ws=>ws?{...ws,revision:result.revision||ws.revision,sync:result.sync||ws.sync,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
+      {mode==='write'&&<WriteView onSceneSaved={(id,data,result)=>setWorkspace(ws=>ws?{...ws,revision:result.revision||ws.revision,sync:result.sync||ws.sync,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${auth?.email||drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
       {mode==='structure'&&<StructureView workspace={workspace} project={project} branch={branch} episode={episode} reload={reload}/>}
       {mode==='diagnose'&&<DiagnoseView episode={episode}/>}
       {mode==='help'&&<HelpView/>}
     </div>
 
     {<ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
+  </main>
+}
+
+function AuthGate({auth,message,onLocal,onSent}){
+  const [email,setEmail]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  async function send(){
+    if(!email.trim()||busy)return;
+    setBusy(true);setError('');
+    try{await remoteApi('/auth/magic-link',{method:'POST',body:JSON.stringify({email:email.trim()})});onSent(`Magic link sent to ${email.trim()}.`)}
+    catch(e){setError(e.message||'Could not send the magic link.')}finally{setBusy(false)}
+  }
+  return <main className="boot">
+    <BrandMark large/>
+    <div className="boot-copy"><span className="eyebrow">Pressure Room account</span><h1>Enter the room</h1><p>Use a magic link. No password, no Google account required.</p><p className="muted">Google Drive is optional now; your account and project access live in Supabase.</p>{auth?.error&&<p className="form-message" role="alert">{auth.error}</p>}{message&&<p className="form-message">{message}</p>}{error&&<p className="form-message" role="alert">{error}</p>}</div>
+    <div className="form-stack auth-form"><label>Email<input type="email" autoComplete="email" value={email} placeholder="you@example.com" onChange={e=>setEmail(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void send()}}/></label><button className="button" disabled={busy||!email.trim()} onClick={send}>{busy?'Sending…':'Email me a magic link'}</button><button className="button secondary" onClick={onLocal}>Continue only on this device</button></div>
   </main>
 }
 

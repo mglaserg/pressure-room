@@ -1,6 +1,6 @@
 # Pressure Room v0.7.1
 
-Security, recovery and design follow-up (2026-09-15): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local and Google Drive modes; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
+Security, recovery and design follow-up (2026-09-15): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local and Google Drive modes, and adds an opt-in Supabase magic-link multi-user foundation; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
 
 **Stories reveal character under pressure.**
 
@@ -34,6 +34,8 @@ Pressure Room keeps only four top-level areas:
 - Room menu for paths, storage, new stories and Export & backup
 - browser-local portable backups with copy import and explicit restore
 - optional Supabase/Postgres durable live state with optimistic concurrency
+- optional Supabase magic-link accounts with owner/editor/viewer project access and email invitations
+- lightweight collaborator presence and project event history as the foundation for later realtime/Yjs editing
 - durable Drive mirror upload intents, conflict recovery and conditional writes
 - OAuth scope recovery: partial Drive grants are rejected cleanly and reconnect starts from a fresh Google authorization
 - Edit / Page toggle over the same screenplay source
@@ -142,11 +144,11 @@ Browser
   → Amazon ECS Express Mode
   → FastAPI
   → ephemeral SQLite working cache
-  ↔ Supabase/Postgres (durable live story state, when configured)
-  ↔ Google Drive / Pressure Room/*.pressureroom (portable mirror/export)
+  ↔ Supabase Auth + Postgres (identity, membership, durable live story state)
+  ↔ Google Drive / Pressure Room/*.pressureroom (optional owner-controlled mirror/export)
 ```
 
-Amplify receives `PRESSURE_ROOM_API_URL=https://<ecs-application-url>` at build time. ECS listens on port `8000` and uses `/api/health` for its health check. With Supabase configured, live story state survives task replacement independently of the container cache; Drive remains the human-visible portable copy. Without Supabase, the existing Drive-canonical behavior remains available for compatibility. Keep one ECS task for now because Drive mirror draining is still process-serialized.
+Amplify receives `PRESSURE_ROOM_API_URL=https://<ecs-application-url>` at build time. ECS listens on port `8000` and uses `/api/health` for its health check. With Supabase configured, live story state survives task replacement independently of the container cache. With `PRESSURE_ROOM_AUTH_ENABLED=true`, Supabase Auth becomes the cloud identity and Drive becomes an optional owner-controlled portable copy. Without magic-link auth, the existing Drive-canonical behavior remains available for compatibility. Presence is currently heartbeat-based; simultaneous character-level screenplay editing is intentionally deferred to a later realtime/Yjs pass.
 
 See [`DEPLOY_AWS.md`](DEPLOY_AWS.md) for the deployment contract.
 

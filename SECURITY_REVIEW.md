@@ -1,3 +1,18 @@
+
+## Multi-user foundation — September 29, 2026
+
+The multi-user pass adds opt-in Supabase magic-link accounts without exposing a Supabase secret to the browser. FastAPI asks Supabase Auth to send the magic link, validates the returned access token, and then issues Pressure Room's encrypted HttpOnly session cookie. Project reads and writes remain server-mediated.
+
+- Project access is explicit owner/editor/viewer membership; write paths require editor or owner access and sharing administration requires owner access.
+- Invite bearer tokens expire after seven days, are restricted to the invited email address, and are stored in Postgres only as SHA-256 hashes.
+- Multi-user tables keep RLS enabled and revoke direct `anon` and `authenticated` table privileges. The server-side `SUPABASE_SECRET_KEY` remains the privileged database credential and must stay in ECS/Secrets Manager only.
+- Existing Google-partitioned workspaces are claimed only when the active Google email matches the magic-link email. Google Drive becomes an optional owner-controlled mirror in multi-user mode.
+- Presence uses short-lived heartbeat rows and project events provide attribution plumbing. This is not yet simultaneous text editing; no custom CRDT or merge algorithm is claimed.
+- Browser-local mode remains account-free and isolated from cloud project permissions.
+
+Operationally, configure Supabase Auth URL allow-listing and production SMTP before inviting external collaborators. Rotate `PRESSURE_ROOM_SESSION_KEY` only with the expectation that existing Pressure Room sessions will be signed out.
+
+---
 # Pressure Room 0.7.1 hotfix
 
 The 0.7.0 header simplification accidentally hid episode creation once a path contained an episode. This was a UI regression, not a removed backend feature. The episode picker now always offers **+ New episode**. Creation saves the current draft first, selects the new episode, prevents repeat submissions while busy and displays errors.
