@@ -800,22 +800,70 @@ def compare_branches(project_id: str, branch_a: str, branch_b: str) -> dict:
         raise KeyError("branch")
 
     def summary(branch_id):
-        scenes = rows("""SELECT id, episode_id, scene_no, title, text FROM scenes WHERE episode_id IN (SELECT id FROM episodes WHERE branch_id=?) ORDER BY scene_no""", [branch_id])
+        scenes = rows("""SELECT id, episode_id, scene_no, title, screenplay_text,
+                                pressure, audience_knows, audience_waits_for,
+                                withheld_information, moral_delta, end_state
+                         FROM scenes
+                         WHERE episode_id IN (SELECT id FROM episodes WHERE branch_id=?)
+                         ORDER BY scene_no""", [branch_id])
         episodes = rows("SELECT id, number, title FROM episodes WHERE branch_id=? ORDER BY number", [branch_id])
-        bills = rows("SELECT title,status FROM bills WHERE project_id=? AND episode_id IN (SELECT id FROM episodes WHERE branch_id=?)", [project_id, branch_id])
+        bills = rows("""SELECT title,status,external_cost,moral_cost
+                        FROM bills
+                        WHERE project_id=?
+                          AND episode_id IN (SELECT id FROM episodes WHERE branch_id=?)""",
+                     [project_id, branch_id])
+        suspense = [
+            {
+                "scene": x["title"],
+                "audience_knows": x.get("audience_knows", ""),
+                "audience_waits_for": x.get("audience_waits_for", ""),
+                "withheld_information": x.get("withheld_information", "")
+            }
+            for x in scenes
+            if any(x.get(k) for k in ("audience_knows", "audience_waits_for", "withheld_information"))
+        ]
+        causal = rows("""SELECT relation, note
+                         FROM causal_links
+                         WHERE episode_id IN (SELECT id FROM episodes WHERE branch_id=?)""",
+                      [branch_id])
         return {
             "scenes": {x["id"]: x for x in scenes},
             "episodes": episodes,
             "bills": bills,
+            "suspense": suspense,
+            "causal": causal,
         }
 
     sa, sb = summary(branch_a), summary(branch_b)
+
+    changed_scenes = []
+    for sid in set(sa["scenes"]).intersection(sb["scenes"]):
+        left, right = sa["scenes"][sid], sb["scenes"][sid]
+        fields = ["screenplay_text", "pressure", "audience_knows",
+                  "audience_waits_for", "withheld_information",
+                  "moral_delta", "end_state"]
+        changed = [f for f in fields if left.get(f) != right.get(f)]
+        if changed:
+            changed_scenes.append({
+                "scene": right.get("title") or left.get("title"),
+                "changed_fields": changed
+            })
+
     return {
         "branch_a": a,
         "branch_b": b,
         "scene_count": {"a": len(sa["scenes"]), "b": len(sb["scenes"])},
         "scenes_added": [x.get("title") for k,x in sb["scenes"].items() if k not in sa["scenes"]],
         "scenes_removed": [x.get("title") for k,x in sa["scenes"].items() if k not in sb["scenes"]],
+        "changed_scenes": changed_scenes,
         "bill_count": {"a": len(sa["bills"]), "b": len(sb["bills"])},
         "bill_changes": {"a": sa["bills"], "b": sb["bills"]},
+        "suspense_changes": {
+            "a": sa["suspense"],
+            "b": sb["suspense"]
+        },
+        "causal_changes": {
+            "a": sa["causal"],
+            "b": sb["causal"]
+        },
     }
