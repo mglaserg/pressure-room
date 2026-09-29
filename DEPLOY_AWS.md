@@ -123,4 +123,13 @@ Without Supabase variables, Pressure Room retains the prior Drive-canonical beha
 
 `.github/workflows/deploy-backend-ecs-express.yml` builds the backend image, pushes it to ECR, and updates the ECS Express service when backend files change on `main`.
 
-The frontend continues to deploy through Amplify.
+The workflow expects these GitHub Actions repository variables in addition to the existing AWS/Google values:
+
+```text
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SECRET_KEY_ARN=arn:aws:secretsmanager:...:secret:<secret-name>:SUPABASE_SECRET_KEY::
+```
+
+The deploy action injects `PRESSURE_ROOM_AUTH_ENABLED=true`, the Supabase URL, and the secret-backed Supabase key into each new ECS task definition so automated deployments do not silently fall back to SQLite.
+
+The frontend continues to deploy through Amplify. Its production build uses local/system font stacks and does not fetch Google Fonts during CI.

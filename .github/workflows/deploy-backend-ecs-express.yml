@@ -42,6 +42,8 @@ jobs:
           GOOGLE_CLIENT_SECRET_ARN: ${{ vars.GOOGLE_CLIENT_SECRET_ARN }}
           PRESSURE_ROOM_SESSION_KEY_ARN: ${{ vars.PRESSURE_ROOM_SESSION_KEY_ARN }}
           PRESSURE_ROOM_PUBLIC_URL: ${{ vars.PRESSURE_ROOM_PUBLIC_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY_ARN: ${{ vars.SUPABASE_SECRET_KEY_ARN }}
         run: |
           required=(
             AWS_DEPLOY_ROLE_ARN
@@ -51,6 +53,8 @@ jobs:
             GOOGLE_CLIENT_SECRET_ARN
             PRESSURE_ROOM_SESSION_KEY_ARN
             PRESSURE_ROOM_PUBLIC_URL
+            SUPABASE_URL
+            SUPABASE_SECRET_KEY_ARN
           )
 
           missing=()
@@ -125,6 +129,14 @@ jobs:
               {
                 "name": "GOOGLE_CLOUD_PROJECT_NUMBER",
                 "value": "${{ vars.GOOGLE_CLOUD_PROJECT_NUMBER }}"
+              },
+              {
+                "name": "SUPABASE_URL",
+                "value": "${{ vars.SUPABASE_URL }}"
+              },
+              {
+                "name": "PRESSURE_ROOM_AUTH_ENABLED",
+                "value": "true"
               }
             ]
 
@@ -137,6 +149,10 @@ jobs:
               {
                 "name": "PRESSURE_ROOM_SESSION_KEY",
                 "valueFrom": "${{ vars.PRESSURE_ROOM_SESSION_KEY_ARN }}"
+              },
+              {
+                "name": "SUPABASE_SECRET_KEY",
+                "valueFrom": "${{ vars.SUPABASE_SECRET_KEY_ARN }}"
               }
             ]
 
