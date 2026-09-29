@@ -29,7 +29,8 @@ function Story({project,episode,reload}) {
   async function save(){
     setMessage('');
     try {
-      await patch('projects',project.id,{title:p.title,premise:p.premise,theme:p.theme});
+      if((p.title||'').trim()!==(project.title||'').trim()) await api(`/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({name:(p.title||'').trim()})});
+      await patch('projects',project.id,{premise:p.premise,theme:p.theme});
       if(episode) await patch('episodes',episode.id,{title:episode.title,logline:episode.logline});
       await reload();
       setMessage('Story spine saved.');

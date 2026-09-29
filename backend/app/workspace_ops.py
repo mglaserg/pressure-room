@@ -12,12 +12,26 @@ from . import auth_store, db, drive_store, supabase_store
 _ACTIVE = ContextVar('workspace_session', default=False)
 _CHANGED = ContextVar('workspace_changed', default=None)
 _BASE_REVISIONS = ContextVar('workspace_base_revisions', default=None)
+_EVENTS = ContextVar('workspace_events', default=None)
+_DRIVE_RENAMES = ContextVar('workspace_drive_renames', default=None)
 
 
 def changed(project_id):
     ids = _CHANGED.get()
     if ids is not None:
         ids.add(project_id)
+
+
+def record_event(project_id, kind, payload=None):
+    events = _EVENTS.get()
+    if events is not None:
+        events.append((project_id, kind, payload or {}))
+
+
+def rename_drive_mirror(project_id):
+    projects = _DRIVE_RENAMES.get()
+    if projects is not None:
+        projects.add(project_id)
 
 
 def workspace_request(fn):
@@ -33,8 +47,12 @@ def workspace_request(fn):
             token = _ACTIVE.set(session)
             affected = set()
             bases = {}
+            events = []
+            drive_renames = set()
             changed_token = _CHANGED.set(affected)
             base_token = _BASE_REVISIONS.set(bases)
+            events_token = _EVENTS.set(events)
+            rename_token = _DRIVE_RENAMES.set(drive_renames)
             try:
                 with db.transaction():
                     result = fn(*args, **kwargs)
@@ -48,7 +66,9 @@ def workspace_request(fn):
                             # A collaborator's personal Drive must never become the
                             # shared story mirror. Only the owner drains Drive.
                             if supabase_store.can_manage_drive(session, pid):
-                                drive_store.drain_project(drive, pid)
+                                sync_result = drive_store.drain_project(drive, pid)
+                                if pid in drive_renames and (sync_result or {}).get('status') == 'synced':
+                                    drive_store.rename_project_mirror(drive, pid)
                                 if supabase_store.enabled():
                                     try:
                                         supabase_store.save_sync_state(session, pid, story_revision=db.project_revision(pid))
@@ -66,6 +86,12 @@ def workspace_request(fn):
                                 # Story persistence already succeeded. Activity
                                 # history is useful metadata, not commit authority.
                                 pass
+                    if auth_store.enabled() and supabase_store.enabled():
+                        for event_project_id, kind, payload in events:
+                            try:
+                                supabase_store.record_event(session, event_project_id, kind, payload)
+                            except HTTPException:
+                                pass
                 if isinstance(result, dict) and affected:
                     pid = next(iter(affected))
                     result.update(revision=db.project_revision(pid), sync=db.sync_status(pid), project_id=pid)
@@ -74,6 +100,8 @@ def workspace_request(fn):
                 _ACTIVE.reset(token)
                 _CHANGED.reset(changed_token)
                 _BASE_REVISIONS.reset(base_token)
+                _EVENTS.reset(events_token)
+                _DRIVE_RENAMES.reset(rename_token)
     return wrapped
 
 

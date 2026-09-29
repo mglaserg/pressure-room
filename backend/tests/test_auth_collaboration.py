@@ -120,3 +120,78 @@ def test_member_upsert_never_downgrades_owner(monkeypatch):
     posted = [call for call in calls if call[1] == "POST"][0][2]["json"][0]
     assert posted["role"] == "owner"
     assert posted["created_at"] == "2026-09-29T12:00:00+00:00"
+
+
+def test_trashed_project_is_hidden_even_from_existing_member(monkeypatch):
+    configure_auth(monkeypatch)
+    monkeypatch.setattr(supabase_store, "_project_meta", lambda project_id: {
+        "project_id": project_id,
+        "owner_id": "22222222-2222-2222-2222-222222222222",
+        "trashed_at": "2026-09-29T16:00:00+00:00",
+    })
+    called = False
+
+    def should_not_read_members(*args, **kwargs):
+        nonlocal called
+        called = True
+        return httpx.Response(200, json=[{"role": "editor"}])
+
+    monkeypatch.setattr(supabase_store, "_request_table", should_not_read_members)
+    session = {"sub": "11111111-1111-1111-1111-111111111111", "email": "editor@example.com"}
+    assert supabase_store.role_for(session, "project-id") is None
+    assert called is False
+
+
+def test_owner_can_soft_delete_and_restore_project(monkeypatch):
+    configure_auth(monkeypatch)
+    session = {"sub": "11111111-1111-1111-1111-111111111111", "email": "owner@example.com"}
+    state = {"trashed": False}
+    calls = []
+
+    def fake_meta(project_id):
+        return {
+            "user_sub": session["sub"],
+            "project_id": project_id,
+            "owner_id": session["sub"],
+            "trashed_at": "2026-09-29T16:00:00+00:00" if state["trashed"] else None,
+        }
+
+    def fake_request(method, **kwargs):
+        calls.append(("projects", method, kwargs))
+        if method == "PATCH":
+            state["trashed"] = kwargs["json"].get("trashed_at") is not None
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(supabase_store, "_project_meta", fake_meta)
+    monkeypatch.setattr(supabase_store, "_request", fake_request)
+    monkeypatch.setattr(supabase_store, "_request_table", lambda table, method, **kwargs: calls.append((table, method, kwargs)) or httpx.Response(200, json=[]))
+    monkeypatch.setattr(supabase_store, "record_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(supabase_store, "_upsert_member", lambda *args, **kwargs: None)
+
+    supabase_store.trash_project(session, "project-id")
+    assert state["trashed"] is True
+    assert any(table == "project_presence" and method == "DELETE" for table, method, _ in calls)
+
+    supabase_store.restore_project(session, "project-id")
+    assert state["trashed"] is False
+
+
+def test_permanent_delete_requires_trash_and_removes_metadata_before_story(monkeypatch):
+    configure_auth(monkeypatch)
+    session = {"sub": "11111111-1111-1111-1111-111111111111", "email": "owner@example.com"}
+    monkeypatch.setattr(supabase_store, "_project_meta", lambda project_id: {
+        "user_sub": session["sub"], "project_id": project_id, "owner_id": session["sub"],
+        "trashed_at": "2026-09-29T16:00:00+00:00",
+    })
+    calls = []
+    monkeypatch.setattr(supabase_store, "_request_table", lambda table, method, **kwargs: calls.append((table, method)) or httpx.Response(204))
+    monkeypatch.setattr(supabase_store, "_request", lambda method, **kwargs: calls.append(("pressure_room_projects", method)) or httpx.Response(204))
+
+    supabase_store.permanently_delete_project(session, "project-id")
+    assert calls == [
+        ("project_presence", "DELETE"),
+        ("project_invites", "DELETE"),
+        ("project_events", "DELETE"),
+        ("project_members", "DELETE"),
+        ("pressure_room_projects", "DELETE"),
+    ]

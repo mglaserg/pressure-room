@@ -5,9 +5,10 @@ import GoogleFountainPicker from './GoogleFountainPicker';
 import {api,setStorageMode} from '@/lib/api';
 import {flushDrafts} from '@/lib/draft-saver.mjs';
 
-export default function RoomMenu({open,onClose,workspace,drive,auth,presence=[],storageMode,branchId,setBranchId,onNew,onBackup,onOpened,reload}){
+export default function RoomMenu({open,onClose,workspace,drive,auth,presence=[],storageMode,branchId,setBranchId,onNew,onBackup,onOpened,reload,onProjectListChanged}){
   const [message,setMessage]=useState(''),[busy,setBusy]=useState(false);
   const [collab,setCollab]=useState(null),[inviteEmail,setInviteEmail]=useState(''),[inviteRole,setInviteRole]=useState('editor');
+  const [renameTitle,setRenameTitle]=useState(workspace?.project?.title||''),[trash,setTrash]=useState([]);
   async function action(fn){setBusy(true);setMessage('');try{await flushDrafts();await fn()}catch(e){setMessage(e.message)}finally{setBusy(false)}}
   const [pickerOpen,setPickerOpen]=useState(false);
   const source=workspace?.project_source;
@@ -16,13 +17,67 @@ export default function RoomMenu({open,onClose,workspace,drive,auth,presence=[],
     if(!auth?.authenticated||!workspace?.project?.id||storageMode==='local'){setCollab(null);return}
     try{setCollab(await api(`/projects/${workspace.project.id}/members`))}catch(e){setMessage(e.message)}
   }
-  useEffect(()=>{if(open)void refreshMembers()},[open,workspace?.project?.id,auth?.authenticated,storageMode]);
+  async function refreshTrash(){
+    if(!(storageMode==='local'||auth?.authenticated)){setTrash([]);return}
+    try{setTrash(await api('/projects/trash'))}catch(e){setMessage(e.message)}
+  }
+  useEffect(()=>{setRenameTitle(workspace?.project?.title||'')},[workspace?.project?.id,workspace?.project?.title]);
+  useEffect(()=>{if(open){void refreshMembers();void refreshTrash()}},[open,workspace?.project?.id,auth?.authenticated,storageMode]);
 
   async function sendInvite(){
     if(!inviteEmail.trim()||!workspace?.project?.id)return;
     await action(async()=>{
       await api(`/projects/${workspace.project.id}/invites`,{method:'POST',body:JSON.stringify({email:inviteEmail.trim(),role:inviteRole})});
       setInviteEmail('');setMessage(`Magic-link invitation sent.`);await refreshMembers();
+    });
+  }
+
+  const role=storageMode==='local'?'owner':(workspace?.access?.role||collab?.role||'viewer');
+  const canEditProject=role==='owner'||role==='editor';
+  const canTrashProject=role==='owner';
+
+  async function renameProject(){
+    const title=renameTitle.trim();
+    if(!workspace?.project?.id||!title||title===workspace.project.title)return;
+    await action(async()=>{
+      await api(`/projects/${workspace.project.id}/rename`,{method:'POST',body:JSON.stringify({name:title})});
+      setMessage('Project renamed.');
+      await reload();
+      await onProjectListChanged?.(workspace.project.id);
+    });
+  }
+
+  async function trashProject(){
+    if(!workspace?.project?.id)return;
+    if(!window.confirm(`Move “${workspace.project.title}” to Trash? Collaborators will lose access until you restore it. The Drive mirror will be left alone.`))return;
+    await action(async()=>{
+      await api(`/projects/${workspace.project.id}/trash`,{method:'POST'});
+      onClose();
+      await onProjectListChanged?.();
+    });
+  }
+
+  async function restoreProject(item){
+    await action(async()=>{
+      await api(`/projects/${item.id}/restore`,{method:'POST'});
+      await refreshTrash();
+      await onProjectListChanged?.(item.id);
+      setMessage(`Restored ${item.title}.`);
+    });
+  }
+
+  async function deleteForever(item){
+    const typed=window.prompt(`Permanent deletion cannot be undone. Type the project title exactly to delete it:
+
+${item.title}`,'');
+    if(typed===null)return;
+    if(typed!==item.title){setMessage('Project title did not match. Nothing was deleted.');return}
+    const deleteDrive=Boolean(drive?.connected&&window.confirm('Also permanently delete Pressure Room’s .pressureroom mirror from Google Drive? The original linked Fountain file, if any, will not be deleted.'));
+    await action(async()=>{
+      await api(`/projects/${item.id}/permanent`,{method:'DELETE',body:JSON.stringify({confirm_title:typed,delete_drive_mirror:deleteDrive})});
+      await refreshTrash();
+      await onProjectListChanged?.();
+      setMessage(`Permanently deleted ${item.title}.`);
     });
   }
 
@@ -40,7 +95,17 @@ export default function RoomMenu({open,onClose,workspace,drive,auth,presence=[],
         {collab&&<p className="microcopy">Your role: {collab.role}. Editors can change story content. Viewers can read it. Only the owner manages access and the optional Drive mirror.</p>}
       </div></details>}
 
-      <button className="button" onClick={()=>{onClose();onBackup()}}>Export & backup</button>
+      {workspace&&<details className="advanced-details" open={false}><summary><span>Project management</span><small>Rename & Trash</small></summary><div className="form-stack">
+        {canEditProject&&<label>Project name<div className="inline-field"><input value={renameTitle} maxLength={200} onChange={e=>setRenameTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void renameProject()}}/><button className="button compact secondary" disabled={busy||!renameTitle.trim()||renameTitle.trim()===workspace.project.title} onClick={renameProject}>Rename</button></div></label>}
+        {canTrashProject?<><button className="button secondary danger-action" disabled={busy} onClick={trashProject}>Move project to Trash</button><p className="microcopy">Trash preserves the story, branches, collaborators, and Drive mirror. Only the owner can restore or permanently delete it.</p></>:<p className="microcopy">Only the project owner can move a shared project to Trash.</p>}
+      </div></details>}
+
+      {(storageMode==='local'||auth?.authenticated)&&<details className="advanced-details" open={!workspace&&trash.length>0}><summary><span>Trash</span><small>{trash.length?`${trash.length} project${trash.length===1?'':'s'}`:'Empty'}</small></summary><div className="form-stack">
+        {!trash.length&&<p className="microcopy">Trash is empty.</p>}
+        {trash.map(item=><div className="collaborator-row" key={item.id}><div><strong>{item.title}</strong><small>{item.trashed_at?`Moved ${new Date(item.trashed_at).toLocaleDateString()}`:'In Trash'}</small></div><div className="trash-actions"><button className="button compact secondary" disabled={busy} onClick={()=>restoreProject(item)}>Restore</button><button className="quiet-action danger-ghost" disabled={busy} onClick={()=>deleteForever(item)}>Delete forever</button></div></div>)}
+      </div></details>}
+
+      {workspace&&<button className="button" onClick={()=>{onClose();onBackup()}}>Export & backup</button>}
       <button className="button secondary" onClick={()=>{onClose();onNew()}}>New story</button>
       {drive?.connected&&drive?.picker_configured&&<GoogleFountainPicker onBeforeShow={()=>setPickerOpen(true)} onFinished={()=>setPickerOpen(false)} onOpened={async result=>{onClose();await onOpened(result.project_id)}}/>}
       <details className="advanced-details"><summary><span>Storage & account</span></summary><div className="form-stack">

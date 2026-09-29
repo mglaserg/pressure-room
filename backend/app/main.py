@@ -91,6 +91,11 @@ class InviteAcceptPayload(BaseModel):
     token: str
 
 
+class PermanentDeletePayload(BaseModel):
+    confirm_title: str
+    delete_drive_mirror: bool = False
+
+
 PATCH_FIELDS = {
     "projects": {"title", "premise", "theme"},
     "characters": {"name", "role", "want", "need", "core_belief", "moral_boundary", "fear", "temptation", "moral_score"},
@@ -294,6 +299,81 @@ def create_project(payload: Payload, request: Request):
     db.insert("branches", {"project_id": pid, "name": "Main", "is_main": 1, "created_at": ts})
     _save(session, pid)
     return {"id": pid}
+
+
+@app.get("/api/projects/trash")
+def projects_trash(request: Request):
+    if not auth_store.enabled():
+        return []
+    session = auth_store.require_session(request)
+    return supabase_store.list_trashed_projects(session)
+
+
+@app.post("/api/projects/{project_id}/rename")
+@workspace_request
+def rename_project(project_id: str, payload: NamePayload, request: Request):
+    session = _prepare(request)
+    check_revision(request, project_id)
+    title = payload.name.strip()
+    if not title:
+        raise HTTPException(400, "Project title cannot be empty.")
+    if len(title) > 200:
+        raise HTTPException(400, "Project title is too long.")
+    before = db.one("SELECT title FROM projects WHERE id=?", [project_id])
+    if not before:
+        raise HTTPException(404, "Project not found")
+    db.update("projects", project_id, {"title": title})
+    _save(session, project_id)
+    workspace_ops.rename_drive_mirror(project_id)
+    workspace_ops.record_event(project_id, "project.renamed", {"from": before["title"], "to": title})
+    return {"ok": True, "title": title}
+
+
+@app.post("/api/projects/{project_id}/trash")
+def trash_project(project_id: str, request: Request):
+    if not auth_store.enabled():
+        raise HTTPException(400, "Cloud Trash requires a Pressure Room account.")
+    session = auth_store.require_session(request)
+    db.bind_user_cache(session["sub"])
+    supabase_store.trash_project(session, project_id)
+    if db.one("SELECT id FROM projects WHERE id=?", [project_id]):
+        db.delete("projects", project_id)
+    return {"ok": True, "project_id": project_id}
+
+
+@app.post("/api/projects/{project_id}/restore")
+def restore_project(project_id: str, request: Request):
+    if not auth_store.enabled():
+        raise HTTPException(400, "Cloud Trash requires a Pressure Room account.")
+    session = auth_store.require_session(request)
+    db.bind_user_cache(session["sub"])
+    supabase_store.restore_project(session, project_id)
+    supabase_store.hydrate_user(session)
+    return {"ok": True, "project_id": project_id}
+
+
+@app.delete("/api/projects/{project_id}/permanent")
+def permanently_delete_project(project_id: str, payload: PermanentDeletePayload, request: Request):
+    if not auth_store.enabled():
+        raise HTTPException(400, "Cloud Trash requires a Pressure Room account.")
+    session = auth_store.require_session(request)
+    trashed = {row["id"]: row for row in supabase_store.list_trashed_projects(session)}
+    item = trashed.get(project_id)
+    if not item:
+        raise HTTPException(404, "Project is not in your Trash.")
+    if payload.confirm_title.strip() != str(item.get("title") or ""):
+        raise HTTPException(400, "Type the project title exactly to delete it permanently.")
+    drive = _drive_session({**session, "drive": drive_store.session_from_request(request) if drive_store.enabled() else None})
+    mirror_deleted = False
+    if payload.delete_drive_mirror:
+        if not drive:
+            raise HTTPException(400, "Connect Google Drive before deleting its mirror, or leave the mirror in Drive.")
+        mirror_deleted = drive_store.delete_project_mirror(drive, project_id)
+    supabase_store.permanently_delete_project(session, project_id)
+    db.bind_user_cache(session["sub"])
+    if db.one("SELECT id FROM projects WHERE id=?", [project_id]):
+        db.delete("projects", project_id)
+    return {"ok": True, "project_id": project_id, "drive_mirror_deleted": mirror_deleted}
 
 
 @app.get("/api/projects/{project_id}")

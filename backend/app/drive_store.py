@@ -553,6 +553,64 @@ def _safe_filename(title: str) -> str:
     return f"{cleaned or 'Untitled Story'}.pressureroom"
 
 
+def _standalone_project_file(session: dict, project_id: str) -> dict | None:
+    source = db.get_project_source(project_id) or {}
+    if source.get("source_kind") == "fountain":
+        return None
+    job = db.sync_job(project_id) or {}
+    file_id = str(job.get("file_id") or "").strip()
+    if file_id:
+        try:
+            meta = file_metadata(session, file_id)
+            return {"id": file_id, "name": meta.get("name")}
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+    matches = [item for item in _project_files(session)
+               if (item.get("appProperties") or {}).get("pressure_room_project_id") == project_id]
+    if len(matches) > 1:
+        raise HTTPException(409, "Multiple Drive mirrors claim this story. Resolve them before renaming or deleting the mirror.")
+    return matches[0] if matches else None
+
+
+def rename_project_mirror(session: dict, project_id: str) -> bool:
+    """Rename only Pressure Room's standalone sidecar; never rename a linked Fountain source."""
+    project = db.one("SELECT title FROM projects WHERE id=?", [project_id])
+    if not project:
+        return False
+    item = _standalone_project_file(session, project_id)
+    if not item:
+        return False
+    desired = _safe_filename(project["title"])
+    if item.get("name") == desired:
+        return False
+    _request(
+        session,
+        "PATCH",
+        f"{DRIVE_FILES_URL}/{validate_file_id(item['id'])}",
+        params={"fields": "id,name", "supportsAllDrives": "true"},
+        json={"name": desired},
+    )
+    return True
+
+
+def delete_project_mirror(session: dict, project_id: str) -> bool:
+    """Delete the app-owned .pressureroom mirror, never an original linked Fountain file."""
+    matches = [item for item in _project_files(session)
+               if (item.get("appProperties") or {}).get("pressure_room_project_id") == project_id]
+    if len(matches) > 1:
+        raise HTTPException(409, "Multiple Drive mirrors claim this story. Resolve them before permanent deletion.")
+    if not matches:
+        return False
+    _request(
+        session,
+        "DELETE",
+        f"{DRIVE_FILES_URL}/{validate_file_id(matches[0]['id'])}",
+        params={"supportsAllDrives": "true"},
+    )
+    return True
+
+
 def _download_project(session: dict, file_id: str) -> dict:
     return read_package(bounded_download(session, file_id, MAX_PACKAGE_BYTES))
 

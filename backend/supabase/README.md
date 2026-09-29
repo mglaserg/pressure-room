@@ -41,3 +41,8 @@ The secret key bypasses RLS and must never be sent to the browser. RLS remains e
 ## Existing projects
 
 When magic-link auth is first enabled, a user who still has the matching Google Drive session can automatically claim the older Google-partitioned durable workspace when the Google email matches the magic-link email. Existing project IDs are preserved. If the old Google session is gone, reconnect that same Google account once so Pressure Room can prove and migrate the legacy partition.
+
+
+## Project Trash
+
+Cloud project deletion is two-stage. Moving a project to Trash sets `pressure_room_projects.trashed_at`; the story payload and collaboration metadata remain durable, normal project queries hide it, and collaborators cannot access it until the owner restores it. Permanent deletion is owner-only and removes the durable project plus membership, invitation, presence and event rows. Google Drive mirror deletion is optional and never deletes an original linked Fountain file.

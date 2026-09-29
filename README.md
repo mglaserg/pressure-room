@@ -36,6 +36,7 @@ Pressure Room keeps only four top-level areas:
 - optional Supabase/Postgres durable live state with optimistic concurrency
 - optional Supabase magic-link accounts with owner/editor/viewer project access and email invitations
 - lightweight collaborator presence and project event history as the foundation for later realtime/Yjs editing
+- project lifecycle controls: rename, owner-only Trash/restore, and explicit permanent deletion with optional Drive-mirror cleanup
 - durable Drive mirror upload intents, conflict recovery and conditional writes
 - OAuth scope recovery: partial Drive grants are rejected cleanly and reconnect starts from a fresh Google authorization
 - Edit / Page toggle over the same screenplay source

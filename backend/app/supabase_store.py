@@ -125,7 +125,7 @@ def _project_meta(project_id: str) -> dict | None:
     response = _request(
         "GET",
         params={
-            "select": "user_sub,project_id,owner_id,created_by,updated_by,revision",
+            "select": "user_sub,project_id,owner_id,created_by,updated_by,revision,trashed_at",
             "project_id": f"eq.{project_id}",
             "limit": "2",
         },
@@ -174,6 +174,9 @@ def _upsert_member(project_id: str, session: dict, role: str) -> None:
 def role_for(session: dict, project_id: str) -> str | None:
     if not auth_mode():
         return "owner"
+    meta = _project_meta(project_id)
+    if not meta or meta.get("trashed_at"):
+        return None
     response = _request_table(
         "project_members",
         "GET",
@@ -187,8 +190,7 @@ def role_for(session: dict, project_id: str) -> str | None:
     rows = response.json() if response.content else []
     if rows:
         return rows[0].get("role")
-    meta = _project_meta(project_id)
-    if meta and str(meta.get("owner_id") or "") == _sub(session):
+    if str(meta.get("owner_id") or "") == _sub(session):
         _upsert_member(project_id, session, "owner")
         return "owner"
     return None
@@ -265,6 +267,8 @@ def save_project(session: dict, project_id: str, *, expected_revision: str | Non
         return {"stored": True, "revision": row["revision"]}
 
     meta = _project_meta(project_id)
+    if meta and meta.get("trashed_at"):
+        raise HTTPException(409, "This project is in Trash. Restore it before editing.")
     if meta:
         require_role(session, project_id, "editor")
     row = _row(session, project_id, meta)
@@ -321,8 +325,9 @@ def _records_for_project_ids(project_ids: list[str]) -> list[dict]:
         response = _request(
             "GET",
             params={
-                "select": "project_id,payload,revision,sync_state,updated_at,owner_id,created_by,updated_by",
+                "select": "project_id,payload,revision,sync_state,updated_at,owner_id,created_by,updated_by,trashed_at",
                 "project_id": f"eq.{project_id}",
+                "trashed_at": "is.null",
                 "limit": "2",
             },
         )
@@ -342,6 +347,7 @@ def list_projects(session: dict) -> list[dict]:
             params={
                 "select": "project_id,payload,revision,sync_state,updated_at",
                 "user_sub": f"eq.{_sub(session)}",
+                "trashed_at": "is.null",
                 "order": "updated_at.asc",
             },
         )
@@ -353,8 +359,9 @@ def list_projects(session: dict) -> list[dict]:
     owned_response = _request(
         "GET",
         params={
-            "select": "project_id,payload,revision,sync_state,updated_at,owner_id,created_by,updated_by",
+            "select": "project_id,payload,revision,sync_state,updated_at,owner_id,created_by,updated_by,trashed_at",
             "owner_id": f"eq.{_sub(session)}",
+            "trashed_at": "is.null",
             "order": "updated_at.asc",
         },
     )
@@ -505,6 +512,82 @@ def save_all(session: dict) -> int:
         save_project(session, project["id"])
         count += 1
     return count
+
+
+# ---- Project lifecycle -----------------------------------------------------------------
+
+def _owner_meta(session: dict, project_id: str, *, allow_trashed: bool = True) -> dict:
+    meta = _project_meta(project_id)
+    if not meta or str(meta.get("owner_id") or "") != _sub(session):
+        raise HTTPException(404, "Project not found")
+    if not allow_trashed and meta.get("trashed_at"):
+        raise HTTPException(404, "Project not found")
+    return meta
+
+
+def list_trashed_projects(session: dict) -> list[dict]:
+    if not (enabled() and auth_mode()):
+        return []
+    response = _request(
+        "GET",
+        params={
+            "select": "project_id,payload,trashed_at,updated_at",
+            "owner_id": f"eq.{_sub(session)}",
+            "trashed_at": "not.is.null",
+            "order": "trashed_at.desc",
+        },
+    )
+    rows = response.json() if response.content else []
+    result = []
+    for row in rows:
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        project = payload.get("project") if isinstance(payload.get("project"), dict) else {}
+        result.append({
+            "id": row.get("project_id"),
+            "title": project.get("title") or "Untitled Story",
+            "trashed_at": row.get("trashed_at"),
+            "updated_at": row.get("updated_at"),
+        })
+    return result
+
+
+def trash_project(session: dict, project_id: str) -> None:
+    meta = _owner_meta(session, project_id, allow_trashed=False)
+    _request(
+        "PATCH",
+        params={"user_sub": f"eq.{meta['user_sub']}", "project_id": f"eq.{project_id}"},
+        json={"trashed_at": db.now_iso(), "updated_by": _sub(session), "updated_at": db.now_iso()},
+        prefer="return=minimal",
+    )
+    record_event(session, project_id, "project.trashed", {})
+    _request_table("project_presence", "DELETE", params={"project_id": f"eq.{project_id}"}, prefer="return=minimal")
+
+
+def restore_project(session: dict, project_id: str) -> None:
+    meta = _owner_meta(session, project_id)
+    if not meta.get("trashed_at"):
+        raise HTTPException(409, "Project is not in Trash.")
+    _request(
+        "PATCH",
+        params={"user_sub": f"eq.{meta['user_sub']}", "project_id": f"eq.{project_id}"},
+        json={"trashed_at": None, "updated_by": _sub(session), "updated_at": db.now_iso()},
+        prefer="return=minimal",
+    )
+    _upsert_member(project_id, session, "owner")
+    record_event(session, project_id, "project.restored", {})
+
+
+def permanently_delete_project(session: dict, project_id: str) -> None:
+    meta = _owner_meta(session, project_id)
+    if not meta.get("trashed_at"):
+        raise HTTPException(409, "Move the project to Trash before deleting it permanently.")
+    for table in ("project_presence", "project_invites", "project_events", "project_members"):
+        _request_table(table, "DELETE", params={"project_id": f"eq.{project_id}"}, prefer="return=minimal")
+    _request(
+        "DELETE",
+        params={"user_sub": f"eq.{meta['user_sub']}", "project_id": f"eq.{project_id}"},
+        prefer="return=minimal",
+    )
 
 
 # ---- Sharing / collaboration metadata -------------------------------------------------

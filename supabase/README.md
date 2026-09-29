@@ -9,6 +9,7 @@ The migrations now create:
 - `public.project_invites` — hashed, expiring email invitations
 - `public.project_presence` — lightweight collaborator presence
 - `public.project_events` — collaboration/activity event plumbing
+- `pressure_room_projects.trashed_at` — owner-controlled soft deletion and restore
 
 All of these tables have RLS enabled and browser roles revoked. Runtime reads/writes go through FastAPI using the server-only `SUPABASE_SECRET_KEY` (`sb_secret_...`); no Supabase secret belongs in this directory or in Git.
 

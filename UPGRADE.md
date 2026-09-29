@@ -61,3 +61,15 @@ Only one selected path is written to a linked Fountain file. Existing links use 
 The legacy anonymous server-SQLite API remains disabled by default. `PRESSURE_ROOM_ALLOW_LOCAL_API=true` is only for trusted single-user development; the browser-local workflow does not need it. Preserve the exact HTTPS `PRESSURE_ROOM_PUBLIC_URL`, OAuth callbacks and allowed origins. Disconnect is POST and revokes the current session identifier, including a copied cookie, through the persistent default database. It does not revoke Google consent or other independently issued sessions.
 
 The backend deployment job now depends on the verification workflow, including tests, production build and npm/Python audits. Repository branch protection, Amplify/frontend deployment gates, IAM, WAF, OAuth restrictions and durable ECS storage still require configuration in the actual environment. No production deployment or account changes were performed.
+
+
+## Project lifecycle update
+
+This revision adds project rename and Trash management. The GitHub/Supabase deployment must apply `supabase/migrations/20260929160000_project_trash.sql` before the new backend serves project requests.
+
+- Owners can move cloud projects to Trash, restore them, or permanently delete them.
+- Editors can rename projects but cannot trash or permanently delete them.
+- Trashed projects disappear from normal lists and are inaccessible to collaborators until restored.
+- Trash preserves the durable story payload, branches, memberships, invitations and the Google Drive mirror.
+- Permanent deletion requires typing the exact project title. Deleting the app-owned `.pressureroom` Drive mirror is a separate explicit choice; linked Fountain source files are never deleted by this action.
+- Browser-local projects use the same rename/Trash/restore UI locally.

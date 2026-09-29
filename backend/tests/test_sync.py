@@ -270,3 +270,29 @@ def test_sidecar_recovers_existing_drive_file_after_cache_identity_loss(story, m
 
     assert result['status'] == 'synced'
     assert db.sync_job(story)['file_id'] == 'existing-file'
+
+
+def test_project_mirror_rename_updates_standalone_sidecar(story, monkeypatch):
+    db.update('projects', story, {'title': 'Renamed Story'})
+    monkeypatch.setattr(drive_store, '_standalone_project_file', lambda *a: {'id': 'mirror-id', 'name': 'Old.pressureroom'})
+    calls=[]
+    def request(session, method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return httpx.Response(200, json={'id':'mirror-id','name':'Renamed Story.pressureroom'})
+    monkeypatch.setattr(drive_store, '_request', request)
+    assert drive_store.rename_project_mirror({}, story) is True
+    assert calls == [('PATCH', f'{drive_store.DRIVE_FILES_URL}/mirror-id', {
+        'params': {'fields':'id,name','supportsAllDrives':'true'},
+        'json': {'name':'Renamed Story.pressureroom'},
+    })]
+
+
+def test_project_mirror_delete_never_targets_linked_fountain_source(story, monkeypatch):
+    monkeypatch.setattr(drive_store, '_project_files', lambda *a: [{
+        'id':'mirror-id',
+        'appProperties':{'pressure_room_project_id':story},
+    }])
+    calls=[]
+    monkeypatch.setattr(drive_store, '_request', lambda session, method, url, **kwargs: calls.append((method,url,kwargs)) or httpx.Response(204))
+    assert drive_store.delete_project_mirror({}, story) is True
+    assert calls == [('DELETE', f'{drive_store.DRIVE_FILES_URL}/mirror-id', {'params':{'supportsAllDrives':'true'}})]

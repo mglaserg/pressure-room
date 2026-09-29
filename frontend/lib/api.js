@@ -259,6 +259,19 @@ function restoreProjectFromPayload(db, payload) {
   return projectId;
 }
 
+function purgeProject(db, projectId) {
+  const episodeIds = new Set(db.episodes.filter(e => e.project_id === projectId).map(e => e.id));
+  db.projects = db.projects.filter(p => p.id !== projectId);
+  db.branches = db.branches.filter(b => b.project_id !== projectId);
+  db.episodes = db.episodes.filter(e => e.project_id !== projectId);
+  db.scenes = db.scenes.filter(s => !episodeIds.has(s.episode_id));
+  db.causal_links = db.causal_links.filter(l => !episodeIds.has(l.episode_id));
+  db.characters = db.characters.filter(c => c.project_id !== projectId);
+  db.bills = db.bills.filter(b => b.project_id !== projectId);
+  db.story_notes = db.story_notes.filter(n => n.project_id !== projectId);
+  db.snapshots = db.snapshots.filter(n => n.project_id !== projectId);
+}
+
 export async function localApi(path, options = {}) {
   const run=()=>localRequest(path,options);
   if (typeof navigator!=='undefined' && navigator.locks) return navigator.locks.request('pressure-room-db',run);
@@ -271,7 +284,7 @@ async function localRequest(path, options = {}) {
   const [pathname] = path.split('?');
 
   if (pathname === '/projects' && method === 'GET') {
-    return clone([...db.projects].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')));
+    return clone(db.projects.filter(p => !p.trashed_at).sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')));
   }
 
   if (pathname === '/projects' && method === 'POST') {
@@ -300,8 +313,50 @@ async function localRequest(path, options = {}) {
     return {id};
   }
 
+  if (pathname === '/projects/trash' && method === 'GET') {
+    return clone(db.projects.filter(p => p.trashed_at).sort((a,b)=>(b.trashed_at||'').localeCompare(a.trashed_at||'')).map(p=>({id:p.id,title:p.title,trashed_at:p.trashed_at,updated_at:p.updated_at})));
+  }
+
+  const renameProjectMatch = pathname.match(/^\/projects\/([^/]+)\/rename$/);
+  if (renameProjectMatch && method === 'POST') {
+    const project = db.projects.find(p => p.id === renameProjectMatch[1] && !p.trashed_at);
+    if (!project) throw new Error('Project not found');
+    const d = parseJsonBody(options);
+    const title = String(d.name || '').trim();
+    if (!title) throw new Error('Project title cannot be empty.');
+    if (title.length > 200) throw new Error('Project title is too long.');
+    project.title = title; touchVersion(project); writeDb(db); return {ok:true,title};
+  }
+
+  const trashProjectMatch = pathname.match(/^\/projects\/([^/]+)\/trash$/);
+  if (trashProjectMatch && method === 'POST') {
+    const project = db.projects.find(p => p.id === trashProjectMatch[1] && !p.trashed_at);
+    if (!project) throw new Error('Project not found');
+    project.trashed_at = nowIso(); touchVersion(project); writeDb(db); return {ok:true,project_id:project.id};
+  }
+
+  const restoreProjectMatch = pathname.match(/^\/projects\/([^/]+)\/restore$/);
+  if (restoreProjectMatch && method === 'POST') {
+    const project = db.projects.find(p => p.id === restoreProjectMatch[1] && p.trashed_at);
+    if (!project) throw new Error('Project is not in Trash.');
+    delete project.trashed_at; touchVersion(project); writeDb(db); return {ok:true,project_id:project.id};
+  }
+
+  const permanentProjectMatch = pathname.match(/^\/projects\/([^/]+)\/permanent$/);
+  if (permanentProjectMatch && method === 'DELETE') {
+    const project = db.projects.find(p => p.id === permanentProjectMatch[1] && p.trashed_at);
+    if (!project) throw new Error('Project is not in Trash.');
+    const d = parseJsonBody(options);
+    if (String(d.confirm_title || '').trim() !== project.title) throw new Error('Type the project title exactly to delete it permanently.');
+    purgeProject(db, project.id); writeDb(db); return {ok:true,project_id:project.id,drive_mirror_deleted:false};
+  }
+
   const projectMatch = pathname.match(/^\/projects\/([^/]+)$/);
-  if (projectMatch && method === 'GET') return clone(workspace(db, projectMatch[1]));
+  if (projectMatch && method === 'GET') {
+    const project = db.projects.find(p => p.id === projectMatch[1] && !p.trashed_at);
+    if (!project) throw new Error('Project not found');
+    return clone(workspace(db, projectMatch[1]));
+  }
 
   const createCharacterMatch = pathname.match(/^\/projects\/([^/]+)\/characters$/);
   if (createCharacterMatch && method === 'POST') {

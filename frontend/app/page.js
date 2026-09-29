@@ -47,7 +47,7 @@ export default function Home(){
     const ps=await api('/projects');
     setProjects(ps);
     setProjectsReady(true);
-    const id=prefer||projectId||ps[0]?.id||'';
+    const id=prefer||(ps.some(p=>p.id===projectId)?projectId:'')||ps[0]?.id||'';
     if(id){setProjectId(id);await loadWorkspace(id)} else {setProjectId('');setWorkspace(null);}
   }
 
@@ -283,9 +283,11 @@ export default function Home(){
       </div>
       <div className="boot-actions">
         <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
+        <button className="button secondary" onClick={()=>setRoomMenu(true)}>Trash & account</button>
         {drive?.configured&&!drive?.connected&&<button className="button secondary" onClick={chooseDriveMode}>Connect Google Drive</button>}
       </div>
     </main>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
@@ -305,7 +307,7 @@ export default function Home(){
         <button className="button secondary" disabled={driveImportBusy} onClick={()=>driveImport.current?.click()}>{driveImportBusy?'Importing…':'Import Pressure Room project'}</button>
       </div>
     </main>
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
@@ -321,11 +323,12 @@ export default function Home(){
       <div className="boot-actions">
         <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
         <button className="button secondary" onClick={()=>setShare(true)}>Restore a backup</button>
+        <button className="button secondary" onClick={()=>setRoomMenu(true)}>Trash & account</button>
         {drive?.configured&&<button className="button secondary" onClick={chooseDriveMode}>Use Google Drive instead</button>}
       </div>
     </main>
     <ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
@@ -361,7 +364,7 @@ export default function Home(){
     </div>
 
     {<ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </main>
 }
