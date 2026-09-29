@@ -663,6 +663,16 @@ def _import_payload(payload: dict, mode: str = "copy") -> str:
     return project_id
 
 
+def promote_branch(project_id: str, branch_id: str) -> None:
+    branch = one("SELECT id FROM branches WHERE id=? AND project_id=?", [branch_id, project_id])
+    if not branch:
+        raise KeyError(branch_id)
+    now = now_iso()
+    conn.execute("UPDATE branches SET is_main=0, updated_at=? WHERE project_id=?", [now, project_id])
+    conn.execute("UPDATE branches SET is_main=1, updated_at=? WHERE id=?", [now, branch_id])
+    conn.commit()
+
+
 def clone_branch(project_id: str, branch_id: str, name: str) -> str:
     source = one("SELECT * FROM branches WHERE id=? AND project_id=?", [branch_id, project_id])
     if not source:

@@ -429,6 +429,19 @@ def clone_branch(project_id: str, branch_id: str, payload: NamePayload, request:
     return {"id": new_id}
 
 
+@app.post("/api/projects/{project_id}/branches/{branch_id}/promote")
+@workspace_request
+def promote_branch(project_id: str, branch_id: str, request: Request):
+    session = _prepare(request)
+    check_revision(request, project_id)
+    try:
+        db.promote_branch(project_id, branch_id)
+    except KeyError:
+        raise HTTPException(404, "Branch not found")
+    _save(session, project_id)
+    return {"ok": True}
+
+
 @app.post("/api/projects/{project_id}/snapshots")
 @workspace_request
 def create_snapshot(project_id: str, payload: SnapshotPayload, request: Request):
