@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS branches (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     is_main INTEGER NOT NULL DEFAULT 0,
+    parent_branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS characters (
@@ -264,6 +265,8 @@ def init_db(seed: bool = True) -> None:
         for column in ("screenplay_text", "audience_knows", "audience_waits_for", "withheld_information"):
             if not _has_column(con, "scenes", column):
                 con.execute(f"ALTER TABLE scenes ADD COLUMN {column} TEXT DEFAULT ''")
+        if not _has_column(con, "branches", "parent_branch_id"):
+            con.execute("ALTER TABLE branches ADD COLUMN parent_branch_id TEXT")
     if seed:
         ensure_demo()
 
@@ -679,7 +682,7 @@ def clone_branch(project_id: str, branch_id: str, name: str) -> str:
         raise KeyError(branch_id)
     new_branch = insert("branches", {
         "project_id": project_id, "name": name.strip() or f"{source['name']} copy",
-        "is_main": 0, "created_at": now_iso(),
+        "is_main": 0, "parent_branch_id": branch_id, "created_at": now_iso(),
     })
     episode_map: dict[str, str] = {}
     scene_map: dict[str, str] = {}
