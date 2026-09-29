@@ -791,3 +791,31 @@ def set_sync(project_id: str, **fields) -> None:
         con.execute('INSERT OR IGNORE INTO sync_jobs(project_id,updated_at) VALUES(?,?)', [project_id,now_iso()])
         fields['updated_at'] = now_iso()
         con.execute(f"UPDATE sync_jobs SET {','.join(k+'=?' for k in fields)} WHERE project_id=?", [*fields.values(),project_id])
+
+
+def compare_branches(project_id: str, branch_a: str, branch_b: str) -> dict:
+    a = one("SELECT id,name FROM branches WHERE id=? AND project_id=?", [branch_a, project_id])
+    b = one("SELECT id,name FROM branches WHERE id=? AND project_id=?", [branch_b, project_id])
+    if not a or not b:
+        raise KeyError("branch")
+
+    def summary(branch_id):
+        scenes = rows("""SELECT id, episode_id, scene_no, title, text FROM scenes WHERE episode_id IN (SELECT id FROM episodes WHERE branch_id=?) ORDER BY scene_no""", [branch_id])
+        episodes = rows("SELECT id, number, title FROM episodes WHERE branch_id=? ORDER BY number", [branch_id])
+        bills = rows("SELECT title,status FROM bills WHERE project_id=? AND episode_id IN (SELECT id FROM episodes WHERE branch_id=?)", [project_id, branch_id])
+        return {
+            "scenes": {x["id"]: x for x in scenes},
+            "episodes": episodes,
+            "bills": bills,
+        }
+
+    sa, sb = summary(branch_a), summary(branch_b)
+    return {
+        "branch_a": a,
+        "branch_b": b,
+        "scene_count": {"a": len(sa["scenes"]), "b": len(sb["scenes"])},
+        "scenes_added": [x.get("title") for k,x in sb["scenes"].items() if k not in sa["scenes"]],
+        "scenes_removed": [x.get("title") for k,x in sa["scenes"].items() if k not in sb["scenes"]],
+        "bill_count": {"a": len(sa["bills"]), "b": len(sb["bills"])},
+        "bill_changes": {"a": sa["bills"], "b": sb["bills"]},
+    }

@@ -429,6 +429,16 @@ def clone_branch(project_id: str, branch_id: str, payload: NamePayload, request:
     return {"id": new_id}
 
 
+@app.get("/api/projects/{project_id}/branches/compare")
+@workspace_request
+def compare_branches(project_id: str, a: str, b: str, request: Request):
+    _prepare(request)
+    try:
+        return db.compare_branches(project_id, a, b)
+    except KeyError:
+        raise HTTPException(404, "Branch not found")
+
+
 @app.post("/api/projects/{project_id}/branches/{branch_id}/promote")
 @workspace_request
 def promote_branch(project_id: str, branch_id: str, request: Request):
