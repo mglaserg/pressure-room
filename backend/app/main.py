@@ -18,6 +18,7 @@ from . import workspace_ops
 from .workspace_ops import workspace_request, check_revision
 from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions, suspense_engine
 from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes, MAX_PACKAGE_BYTES
+from .screenplay_pdf import screenplay_pdf_bytes
 
 
 @asynccontextmanager
@@ -653,6 +654,10 @@ def export(project_id: str, kind: str, request: Request):
         return Response(fountain(payload), media_type="text/plain; charset=utf-8", headers=disposition(".fountain"))
     if kind == "pdf":
         return Response(pdf_bytes(payload), media_type="application/pdf", headers=disposition("-story-packet.pdf"))
+    if kind in {"screenplay-pdf", "screenplay-mobile-pdf"}:
+        mobile = kind == "screenplay-mobile-pdf"
+        suffix = "-screenplay-mobile.pdf" if mobile else "-screenplay.pdf"
+        return Response(screenplay_pdf_bytes(payload, mobile=mobile), media_type="application/pdf", headers=disposition(suffix))
     raise HTTPException(400, "Unknown export kind")
 
 

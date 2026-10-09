@@ -63,6 +63,12 @@ def test_pdf_branch_and_snapshot():
         pdf = client.get(f"/api/projects/{pid}/export/pdf")
         assert pdf.status_code == 200
         assert pdf.content.startswith(b"%PDF-")
+        for kind, filename in (("screenplay-pdf", "-screenplay.pdf"), ("screenplay-mobile-pdf", "-screenplay-mobile.pdf")):
+            screenplay = client.get(f"/api/projects/{pid}/export/{kind}")
+            assert screenplay.status_code == 200
+            assert screenplay.content.startswith(b"%PDF-")
+            assert screenplay.headers["content-type"] == "application/pdf"
+            assert filename in screenplay.headers["content-disposition"]
         branched = client.post(f"/api/projects/{pid}/branches/{main['id']}/clone", json={"name": "What if Mara refuses?"})
         assert branched.status_code == 200
         snap = client.post(f"/api/projects/{pid}/snapshots", json={"label": "Story lab checkpoint"})

@@ -36,7 +36,9 @@ The in-app version of this guide for new writers and collaborators.
 Use **Share** to export:
 
 - `.pressureroom` — the complete editable project
-- PDF — a human-readable story packet
+- Screenplay PDF — standard letter pages for printing and sharing
+- Mobile screenplay PDF — narrow pages and larger type for reading on a phone
+- Story packet PDF — a human-readable overview of story structure
 - Markdown — portable story notes
 - Fountain — screenplay text for Fountain-compatible software
 

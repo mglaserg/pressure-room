@@ -15,8 +15,15 @@ export default function ShareSheet({open,onClose,project,onImported}) {
     try{
       await flushDrafts();
       const response=await api(`/projects/${project.id}/export/${kind}`);
-      downloadBlob(await response.arrayBuffer(),`${project.title.replace(/[^\p{L}\p{N} _-]/gu,'_')}.${kind==='package'?'pressureroom':kind==='markdown'?'md':kind}`,response.headers.get('content-type'));
-      setMessage('Backup downloaded. Keep it somewhere separate from this browser.');
+      const fileName = project.title.replace(/[^\p{L}\p{N} _-]/gu,'_');
+      const filenames = {
+        package: `${fileName}.pressureroom`, markdown: `${fileName}-notes.md`,
+        fountain: `${fileName}.fountain`, pdf: `${fileName}-story-packet.pdf`,
+        'screenplay-pdf': `${fileName}-screenplay.pdf`,
+        'screenplay-mobile-pdf': `${fileName}-screenplay-mobile.pdf`,
+      };
+      downloadBlob(await response.arrayBuffer(), filenames[kind], response.headers.get('content-type'));
+      setMessage(kind === 'package' ? 'Backup downloaded. Keep it somewhere separate from this browser.' : 'Export downloaded.');
     }catch(e){setMessage(e.message)}finally{setBusy(false)}
   }
   async function importFile(file){
@@ -31,7 +38,12 @@ export default function ShareSheet({open,onClose,project,onImported}) {
     }catch(e){setMessage(e.message)}finally{setBusy(false);if(input.current)input.current.value=''}
   }
   const exports=local?[['Full story backup','package','Includes scenes, structure and snapshots']]:[
-    ['Full story backup','package','The complete editable story and snapshots'],['Story packet','pdf','A readable overview'],['Structured notes','markdown','Portable story architecture'],['Screenplay','fountain','A Fountain copy']];
+    ['Full story backup','package','The complete editable story and snapshots'],
+    ['Screenplay PDF','screenplay-pdf','Standard screenplay pages for printing or sharing'],
+    ['Mobile screenplay PDF','screenplay-mobile-pdf','Narrow pages and larger text for reading on a phone'],
+    ['Screenplay (Fountain)','fountain','Editable Fountain text'],
+    ['Story packet PDF','pdf','Plot, characters, structure and notes'],
+    ['Structured notes','markdown','Portable story architecture']];
   return <Modal open={open} onClose={onClose} title="Export & backup">
     <p className="modal-lead">{local?'This story lives in this browser. A downloaded backup protects it if the browser or device is lost.':'Download an independent backup of your story, separate from your Supabase account.'}</p>
     {project&&<div className="export-list">{exports.map(([label,kind,note])=><button key={kind} disabled={busy} className="export-row" onClick={()=>exportFile(kind)}><span className="export-format">↓</span><div><strong>{label}</strong><span>{note}</span></div></button>)}</div>}

@@ -1,7 +1,7 @@
 'use client';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {create, localApi, remoteApi, remove} from '@/lib/api';
-import {createDraftSaver} from '@/lib/draft-saver.mjs';
+import {createDraftSaver, flushDrafts} from '@/lib/draft-saver.mjs';
 import {downloadBlob} from '@/lib/portable.mjs';
 import {parseFountain} from '@/lib/fountain.mjs';
 
@@ -16,6 +16,8 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
   const [saveState, setSaveState] = useState('saved');
   const [viewMode, setViewMode] = useState('edit');
   const [actionMessage,setActionMessage]=useState('');
+  const [sceneBusy,setSceneBusy]=useState(false);
+  const sceneCreating = useRef(false);
   const saver = useRef(null);
 
   useEffect(()=>{
@@ -52,6 +54,8 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
       else {instance.pause();instance.update(recovered);}
     }
     const flush = () => { void instance.flush(); };
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush(); };
+    document.addEventListener('visibilitychange', onVisibility);
     const beforeUnload = event => {
       if (instance.isPending()) { event.preventDefault(); event.returnValue = ''; }
       flush();
@@ -60,6 +64,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     window.addEventListener('beforeunload', beforeUnload);
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', beforeUnload);
       void instance.release();
@@ -86,22 +91,52 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
     saver.current?.update(payload);
   }
 
+  async function saveNow() {
+    setActionMessage('');
+    try { await flushDrafts(); }
+    catch (err) { setActionMessage(err.message || 'This scene could not be saved. Your draft remains on this device.'); }
+  }
+
+  async function switchScene(id) {
+    if (!id || id === selected?.id || sceneCreating.current) return;
+    sceneCreating.current = true;
+    setSceneBusy(true);
+    setActionMessage('');
+    try {
+      await flushDrafts();
+      setSceneId(id);
+    } catch (err) { setActionMessage(err.message || 'Save the current scene before switching.'); }
+    finally { sceneCreating.current = false; setSceneBusy(false); }
+  }
+
   async function addScene() {
-    if (!episode) return;
-    const scene_no = (scenes.at(-1)?.scene_no || 0) + 1;
-    const r = await create(`/episodes/${episode.id}/scenes`, {scene_no, slugline:'INT. LOCATION — DAY', screenplay_text:''});
-    await reload(r.id);
+    if (!episode || sceneCreating.current) return;
+    sceneCreating.current = true;
+    setSceneBusy(true);
+    setActionMessage('');
+    try {
+      await flushDrafts();
+      const scene_no = Math.max(0, ...scenes.map(scene => Number(scene.scene_no) || 0)) + 1;
+      const r = await create(`/episodes/${episode.id}/scenes`, {scene_no, slugline:'INT. LOCATION — DAY', screenplay_text:''});
+      await reload(r.id);
+      chooseView('edit');
+    } catch (err) {
+      setActionMessage(err.message || 'Could not create a scene. Try again.');
+    } finally {
+      sceneCreating.current = false;
+      setSceneBusy(false);
+    }
   }
 
   async function deleteScene() {
     if (!selected) return;
     const label = selected.slugline || `Scene ${selected.scene_no}`;
-    if (!window.confirm(`Delete Scene ${selected.scene_no} · ${label}? This cannot be undone.`)) return;
+    if (sceneBusy || !window.confirm(`Delete Scene ${selected.scene_no} · ${label}? This cannot be undone.`)) return;
     const index=scenes.findIndex(scene=>scene.id===selected.id);
     const nextScene=scenes[index+1]||scenes[index-1]||null;
     setActionMessage('');
     try {
-      await saver.current?.flush();
+      await flushDrafts();
       await remove('scenes', selected.id);
       saver.current?.discard();
       setSceneId(nextScene?.id||'');
@@ -118,52 +153,54 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
       <aside className="scene-rail">
         <div className="rail-head">
           <div><span>Scenes</span><small>{scenes.length} in this episode</small></div>
-          <button className="mini-button" onClick={addScene} aria-label="New scene">＋</button>
+          <button className="mini-button" onClick={addScene} disabled={sceneBusy} type="button" aria-label="New scene" title="New scene">＋</button>
         </div>
         <div className="scene-scroll">
           {scenes.map(s=>{
             const isActive=s.id===selected?.id;
-            return <button key={s.id} className={`scene-item ${isActive?'active':''}`} onClick={()=>setSceneId(s.id)}>
+            return <button key={s.id} className={`scene-item ${isActive?'active':''}`} aria-current={isActive?'true':undefined} disabled={sceneBusy} onClick={()=>void switchScene(s.id)}>
               <span className="scene-index">{String(s.scene_no).padStart(2,'0')}</span>
               <span className="scene-item-copy"><b>{s.slugline || 'Untitled scene'}</b><small>{s.choice || s.scene_want || 'No structural note yet'}</small></span>
             </button>
           })}
         </div>
-        <button className="rail-add" onClick={addScene}>＋ <span>New scene</span></button>
+        <button className="rail-add" type="button" disabled={sceneBusy} onClick={addScene}>＋ <span>{sceneBusy?'Creating…':'New scene'}</span></button>
       </aside>
 
       <main className="writer-canvas">
+        {actionMessage&&<p className="form-message writer-action-message" role="alert">{actionMessage}</p>}
         {selected ? <div className="writer-shell">
           <div className="writer-toolbar">
             <div className="writer-location"><span className="eyebrow">Episode {episode.number}</span><b>Scene {String(selected.scene_no).padStart(2,'0')}</b></div>
             <div className="writer-toolbar-actions">
+              <button type="button" className="quiet-action mobile-new-scene" disabled={sceneBusy} onClick={addScene}>＋ Scene</button>
               <button className="quiet-action focus-button" aria-pressed={focus} onClick={()=>setFocus(v=>!v)}>{focus?'Exit focus':'Focus'}</button>
               {!focus&&<button className="quiet-action danger-ghost" type="button" onClick={deleteScene}>Delete scene</button>}
-              {focus&&<select className="focus-scene-select" aria-label="Scene in focus mode" value={selected.id} onChange={e=>setSceneId(e.target.value)}>{scenes.map(s=><option value={s.id} key={s.id}>Scene {s.scene_no}</option>)}</select>}
+              {focus&&<select className="focus-scene-select" aria-label="Scene in focus mode" value={selected.id} onChange={e=>void switchScene(e.target.value)}>{scenes.map(s=><option value={s.id} key={s.id}>Scene {s.scene_no}</option>)}</select>}
               <div className="writer-view-switch" role="group" aria-label="Writing view">
                 <button type="button" className={viewMode==='edit'?'active':''} aria-pressed={viewMode==='edit'} onClick={()=>chooseView('edit')}>Edit</button>
                 <button type="button" className={viewMode==='page'?'active':''} aria-pressed={viewMode==='page'} onClick={()=>chooseView('page')}>Page</button>
               </div>
+              <button type="button" className="quiet-action mobile-save-scene" onClick={saveNow} disabled={sceneBusy || saveState==='saving'}>Save</button>
               <div className={`save-state ${saveState}`} role="status" aria-live="polite"><i/>{saveState==='saving'?'Saving…':saveState==='conflict'?'Conflict · draft kept here':saveState==='pending'?'Save pending':saveState==='offline'?'Draft on device · save failed':saveState==='uncached'?'Backup unavailable · keep this tab open':storageScope.startsWith('local:')?'Saved in this browser':'Saved to Supabase'}{(saveState==='offline'||saveState==='uncached')&&<button className="quiet-action" onClick={()=>saver.current?.flush()}>Retry</button>}</div>
             </div>
           </div>
-          {actionMessage&&<p className="form-message writer-action-message" role="alert">{actionMessage}</p>}
 
           {['conflict','offline','uncached'].includes(saveState)&&<div className="draft-recovery" role="alert"><p>Your draft is still on this page. Keep a copy before loading another version.</p><div className="form-actions"><button className="button secondary" onClick={()=>downloadBlob(JSON.stringify(draft,null,2),`scene-${selected.scene_no}-recovery.json`,'application/json')}>Download draft</button><button className="button secondary" onClick={()=>{downloadBlob(JSON.stringify(draft,null,2),`scene-${selected.scene_no}-recovery.json`,'application/json');saver.current?.discard();window.location.reload()}}>Download draft & load saved story</button></div></div>}
           {viewMode==='edit'
             ? <section className="writer-paper">
-                <input className="slugline-input" value={draft.slugline || ''} onChange={e=>change('slugline', e.target.value)} aria-label="Scene heading" placeholder="INT. LOCATION — DAY"/>
+                <input className="slugline-input" value={draft.slugline || ''} onChange={e=>change('slugline', e.target.value)} onBlur={()=>void saver.current?.flush()} aria-label="Scene heading" placeholder="INT. LOCATION — DAY"/>
                 <div className="paper-rule"/>
-                <textarea className="screenplay-editor" aria-label="Scene screenplay" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} placeholder="Write the scene…" spellCheck="true"/>
+                <textarea className="screenplay-editor" aria-label="Scene screenplay" value={draft.screenplay_text || ''} onChange={e=>change('screenplay_text', e.target.value)} onBlur={()=>void saver.current?.flush()} placeholder="Write the scene…" spellCheck="true"/>
               </section>
-            : <ScreenplayPage slugline={draft.slugline || ''} text={draft.screenplay_text || ''}/>}
+            : <><button className="quiet-action mobile-edit-scene" type="button" onClick={()=>chooseView('edit')}>Edit this scene</button><ScreenplayPage slugline={draft.slugline || ''} text={draft.screenplay_text || ''}/></>}
 
           <button hidden={focus} aria-expanded={structureOpen} className={`structure-toggle ${structureOpen?'active':''}`} onClick={()=>setStructureOpen(v=>!v)}>
             <span className="structure-toggle-main"><i/><span><b>Scene structure</b><small>{draft.scene_want || draft.pressure || draft.choice ? 'The machinery under the page' : 'Add only what helps you write the next beat'}</small></span></span>
             <span className="structure-toggle-meta">{structureOpen?'Close':'Want · Pressure · Choice'} <b>{structureOpen?'↑':'↓'}</b></span>
           </button>
           {structureOpen && !focus && <StructurePanel draft={draft} change={change} characters={workspace.characters || []}/>}
-        </div> : <Empty title="No scenes yet." body="A blank wall is useful for about thirty seconds." action="Create the first scene" onAction={addScene}/>}
+        </div> : <Empty title="No scenes yet." body="A blank wall is useful for about thirty seconds." action={sceneBusy?"Creating…":"Create the first scene"} onAction={addScene}/>}
       </main>
     </div>
   );

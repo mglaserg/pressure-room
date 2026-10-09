@@ -77,9 +77,11 @@ Pressure Room keeps only four top-level areas:
 - complete `.pressureroom` project package
 - import as copy
 - restore / replace
-- PDF story packet
+- PDF story packet (outlines, characters and notes)
+- screenplay PDFs: standard letter pages and a narrow, larger-text mobile reading edition
 - Markdown story packet
 - Fountain screenplay export
+- on mobile, scene creation and saving are accessible directly in Write; switching scenes flushes pending edits
 
 The visual rules are documented in [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
 
