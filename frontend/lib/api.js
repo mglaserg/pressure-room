@@ -348,7 +348,7 @@ async function localRequest(path, options = {}) {
     if (!project) throw new Error('Project is not in Trash.');
     const d = parseJsonBody(options);
     if (String(d.confirm_title || '').trim() !== project.title) throw new Error('Type the project title exactly to delete it permanently.');
-    purgeProject(db, project.id); writeDb(db); return {ok:true,project_id:project.id,drive_mirror_deleted:false};
+    purgeProject(db, project.id); writeDb(db); return {ok:true,project_id:project.id};
   }
 
   const projectMatch = pathname.match(/^\/projects\/([^/]+)$/);
@@ -720,10 +720,6 @@ export async function remoteApi(path, options = {}) {
       const detail = await res.json().catch(() => ({detail: res.statusText}));
       const message=detail.detail?.message||detail.detail||`Request failed (${res.status})`;
       const error=new Error(message);error.status=res.status;error.code=detail.detail?.code;
-      if(error.code==='google_drive_scope_missing'&&typeof window!=='undefined'){
-        setStorageMode('');
-        window.location.assign('/?google_drive=permission_required');
-      }
       throw error;
     }
     const type = res.headers.get('content-type') || '';
@@ -746,7 +742,7 @@ export async function remoteApi(path, options = {}) {
 }
 
 function shouldForceRemote(path) {
-  return path.startsWith('/google/') || path.startsWith('/auth/') || path === '/health' || path === '/ready';
+  return path.startsWith('/auth/') || path === '/health' || path === '/ready';
 }
 
 export async function api(path, options = {}) {

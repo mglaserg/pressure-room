@@ -60,7 +60,7 @@ def test_supabase_compare_and_swap_uses_existing_story_revision(story, monkeypat
         return httpx.Response(200, json=[{"project_id": story, "revision": revision}])
 
     monkeypatch.setattr(httpx, "request", fake_request)
-    result = supabase_store.save_project({"sub": "google-user"}, story, expected_revision=revision)
+    result = supabase_store.save_project({"sub": "supabase-user"}, story, expected_revision=revision)
 
     assert result["stored"] is True
     method, _, kwargs = calls[0]
@@ -80,14 +80,14 @@ def test_supabase_stale_compare_and_swap_returns_conflict(story, monkeypatch):
 
     monkeypatch.setattr(httpx, "request", fake_request)
     try:
-        supabase_store.save_project({"sub": "google-user"}, story, expected_revision="older")
+        supabase_store.save_project({"sub": "supabase-user"}, story, expected_revision="older")
     except Exception as exc:
         assert getattr(exc, "status_code", None) == 409
     else:
         raise AssertionError("stale durable write should conflict")
 
 
-def test_supabase_hydrate_restores_story_and_drive_state(story, monkeypatch):
+def test_supabase_hydrate_ignores_legacy_sync_state(story, monkeypatch):
     monkeypatch.setattr(supabase_store, "SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setattr(supabase_store, "SUPABASE_SECRET_KEY", "service-secret")
     payload = db.project_payload(story, include_snapshots=True)
@@ -120,11 +120,11 @@ def test_supabase_hydrate_restores_story_and_drive_state(story, monkeypatch):
         return httpx.Response(200, json=[record])
 
     monkeypatch.setattr(httpx, "request", fake_request)
-    result = supabase_store.hydrate_user({"sub": "google-user"})
+    result = supabase_store.hydrate_user({"sub": "supabase-user"})
 
     assert result == {"pulled": 1, "remote": 1}
     assert db.project_payload(story)["project"]["title"] == "Durable title"
-    assert db.sync_job(story)["file_id"] == "drive-file"
+    assert db.sync_job(story) is None
 
 
 def test_durable_write_failure_rolls_back_local_mutation(story, monkeypatch):
@@ -132,7 +132,7 @@ def test_durable_write_failure_rolls_back_local_mutation(story, monkeypatch):
     from app import main
 
     before = {item['id'] for item in db.get_projects()}
-    monkeypatch.setattr(main, '_prepare', lambda request: {'sub': 'google-user'})
+    monkeypatch.setattr(main, '_prepare', lambda request: {'sub': 'supabase-user'})
     monkeypatch.setattr(supabase_store, 'enabled', lambda: True)
     monkeypatch.setattr(
         supabase_store,

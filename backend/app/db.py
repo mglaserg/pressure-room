@@ -30,7 +30,7 @@ def bind_default_cache() -> None:
 def bind_user_cache(user_sub: str) -> Path:
     user_sub = str(user_sub or "").strip()
     if not user_sub:
-        raise ValueError("Google user sub is required for an isolated cache.")
+        raise ValueError("Authenticated user ID is required for an isolated cache.")
     digest = hashlib.sha256(user_sub.encode("utf-8")).hexdigest()[:32]
     root = Path(
         os.getenv("PRESSURE_ROOM_USER_CACHE_DIR", str(DB_PATH.parent / "users"))
@@ -527,7 +527,9 @@ def workspace(project_id: str) -> dict:
         [project_id],
     )
     payload["revision"] = project_revision(project_id)
-    payload["sync"] = sync_status(project_id)
+    # Legacy external source and sync metadata are preserved for revision
+    # compatibility but are not active workspace features.
+    payload.pop("project_source", None)
     return payload
 
 

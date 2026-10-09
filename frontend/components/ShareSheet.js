@@ -5,7 +5,7 @@ import {api,isLocalMode} from '@/lib/api';
 import {downloadBlob} from '@/lib/portable.mjs';
 import {flushDrafts} from '@/lib/draft-saver.mjs';
 
-export default function ShareSheet({open,onClose,project,drive,onImported}) {
+export default function ShareSheet({open,onClose,project,onImported}) {
   const input=useRef(null);
   const [mode,setMode]=useState('copy'),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   const local=isLocalMode();
@@ -33,7 +33,7 @@ export default function ShareSheet({open,onClose,project,drive,onImported}) {
   const exports=local?[['Full story backup','package','Includes scenes, structure and snapshots']]:[
     ['Full story backup','package','The complete editable story and snapshots'],['Story packet','pdf','A readable overview'],['Structured notes','markdown','Portable story architecture'],['Screenplay','fountain','A Fountain copy']];
   return <Modal open={open} onClose={onClose} title="Export & backup">
-    <p className="modal-lead">{local?'This story lives in this browser. A downloaded backup protects it if the browser or device is lost.':'Download an independent copy of your story. Google Drive sync and downloaded backups are separate.'}</p>
+    <p className="modal-lead">{local?'This story lives in this browser. A downloaded backup protects it if the browser or device is lost.':'Download an independent backup of your story, separate from your Supabase account.'}</p>
     {project&&<div className="export-list">{exports.map(([label,kind,note])=><button key={kind} disabled={busy} className="export-row" onClick={()=>exportFile(kind)}><span className="export-format">↓</span><div><strong>{label}</strong><span>{note}</span></div></button>)}</div>}
     <div className="section-divider"><span>Restore a backup</span></div>
     <div className="segmented"><button aria-pressed={mode==='copy'} className={mode==='copy'?'active':''} onClick={()=>setMode('copy')}>Import as a copy</button><button aria-pressed={mode==='replace'} className={mode==='replace'?'active':''} onClick={()=>setMode('replace')}>Restore original story</button></div>

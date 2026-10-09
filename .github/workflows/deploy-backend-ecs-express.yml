@@ -38,8 +38,6 @@ jobs:
           AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           ECS_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
           ECS_INFRASTRUCTURE_ROLE_ARN: ${{ vars.ECS_INFRASTRUCTURE_ROLE_ARN }}
-          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET_ARN: ${{ vars.GOOGLE_CLIENT_SECRET_ARN }}
           PRESSURE_ROOM_SESSION_KEY_ARN: ${{ vars.PRESSURE_ROOM_SESSION_KEY_ARN }}
           PRESSURE_ROOM_PUBLIC_URL: ${{ vars.PRESSURE_ROOM_PUBLIC_URL }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -49,8 +47,6 @@ jobs:
             AWS_DEPLOY_ROLE_ARN
             ECS_EXECUTION_ROLE_ARN
             ECS_INFRASTRUCTURE_ROLE_ARN
-            GOOGLE_CLIENT_ID
-            GOOGLE_CLIENT_SECRET_ARN
             PRESSURE_ROOM_SESSION_KEY_ARN
             PRESSURE_ROOM_PUBLIC_URL
             SUPABASE_URL
@@ -114,52 +110,13 @@ jobs:
 
           environment-variables: |
             [
-              {
-                "name": "GOOGLE_CLIENT_ID",
-                "value": "${{ vars.GOOGLE_CLIENT_ID }}"
-              },
-              {
-                "name": "PRESSURE_ROOM_PUBLIC_URL",
-                "value": "${{ vars.PRESSURE_ROOM_PUBLIC_URL }}"
-              },
-              {
-                "name": "GOOGLE_PICKER_API_KEY",
-                "value": "${{ vars.GOOGLE_PICKER_API_KEY }}"
-              },
-              {
-                "name": "GOOGLE_CLOUD_PROJECT_NUMBER",
-                "value": "${{ vars.GOOGLE_CLOUD_PROJECT_NUMBER }}"
-              },
-              {
-                "name": "SUPABASE_URL",
-                "value": "${{ vars.SUPABASE_URL }}"
-              },
-              {
-                "name": "PRESSURE_ROOM_AUTH_ENABLED",
-                "value": "true"
-              }
+              {"name": "PRESSURE_ROOM_PUBLIC_URL", "value": "${{ vars.PRESSURE_ROOM_PUBLIC_URL }}"},
+              {"name": "SUPABASE_URL", "value": "${{ vars.SUPABASE_URL }}"},
+              {"name": "PRESSURE_ROOM_AUTH_ENABLED", "value": "true"}
             ]
 
           secrets: |
             [
-              {
-                "name": "GOOGLE_CLIENT_SECRET",
-                "valueFrom": "${{ vars.GOOGLE_CLIENT_SECRET_ARN }}"
-              },
-              {
-                "name": "PRESSURE_ROOM_SESSION_KEY",
-                "valueFrom": "${{ vars.PRESSURE_ROOM_SESSION_KEY_ARN }}"
-              },
-              {
-                "name": "SUPABASE_SECRET_KEY",
-                "valueFrom": "${{ vars.SUPABASE_SECRET_KEY_ARN }}"
-              }
+              {"name": "PRESSURE_ROOM_SESSION_KEY", "valueFrom": "${{ vars.PRESSURE_ROOM_SESSION_KEY_ARN }}"},
+              {"name": "SUPABASE_SECRET_KEY", "valueFrom": "${{ vars.SUPABASE_SECRET_KEY_ARN }}"}
             ]
-
-      - name: Publish deployed endpoint
-        shell: bash
-        run: |
-          echo "### Pressure Room backend deployed" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "${{ steps.deploy.outputs.endpoint }}" >> "$GITHUB_STEP_SUMMARY"
-

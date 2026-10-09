@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
-from . import auth_store, db, drive_store, fountain_link, supabase_store
+from . import auth_store, db, supabase_store
 from .request_limits import RequestLimitMiddleware
 from . import workspace_ops
 from .workspace_ops import workspace_request, check_revision
@@ -40,7 +40,7 @@ app.add_middleware(
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     origin = request.headers.get("origin")
-    allowed = {"http://localhost:3000", "http://127.0.0.1:3000", drive_store.PUBLIC_URL}
+    allowed = {"http://localhost:3000", "http://127.0.0.1:3000", os.getenv("PRESSURE_ROOM_PUBLIC_URL", "").rstrip("/")}
     allowed.update(v.strip() for v in os.getenv("PRESSURE_ROOM_ALLOWED_ORIGINS", "").split(",") if v.strip())
     if request.method not in {"GET", "HEAD", "OPTIONS"} and (
         request.headers.get("sec-fetch-site") == "cross-site" or (origin and origin not in allowed)
@@ -70,10 +70,6 @@ class NamePayload(BaseModel):
 class SnapshotPayload(BaseModel):
     label: str = "Snapshot"
 
-class FountainOpenPayload(BaseModel):
-    file_id: str
-
-
 class EmailPayload(BaseModel):
     email: str
 
@@ -93,7 +89,6 @@ class InviteAcceptPayload(BaseModel):
 
 class PermanentDeletePayload(BaseModel):
     confirm_title: str
-    delete_drive_mirror: bool = False
 
 
 PATCH_FIELDS = {
@@ -111,55 +106,23 @@ def _prepare(request: Request) -> dict | None:
     if workspace_ops._ACTIVE.get() is not False:
         return workspace_ops._ACTIVE.get()
 
-    # Magic-link mode makes Supabase Auth the account identity. Google Drive is
-    # then an optional personal mirror/export integration, not the login system.
     if auth_store.enabled():
         identity = auth_store.require_session(request)
         db.bind_user_cache(identity["sub"])
-        drive_session = drive_store.session_from_request(request) if drive_store.enabled() else None
-        # Google session revocation checks intentionally touch the legacy default
-        # cache. Re-bind the authenticated user's isolated working cache afterward.
-        db.bind_user_cache(identity["sub"])
         if supabase_store.enabled():
-            if drive_session:
-                supabase_store.claim_legacy_workspace(identity, drive_session)
-            durable = supabase_store.hydrate_user(identity)
-            if durable["remote"] == 0 and drive_session:
-                # One-time bridge for pre-Supabase/Drive-only users. Once seeded,
-                # Postgres is canonical and Drive returns to being a mirror.
-                result = drive_store.sync_all_from_drive(drive_session, cache_sub=identity["sub"])
-                if result.get("pulled") and db.get_projects():
-                    supabase_store.save_all(identity)
-        return {**identity, "drive": drive_session, "auth": True}
+            supabase_store.hydrate_user(identity)
+        return identity
 
-    if not drive_store.enabled():
-        # Browser-local mode does not need the server database. Public deployments
-        # must never fall back to sharing one anonymous SQLite workspace.
-        if os.getenv("PRESSURE_ROOM_ALLOW_LOCAL_API", "").lower() != "true":
-            raise HTTPException(403, "Server-local storage is disabled. Use browser storage or sign in.")
-        db.bind_default_cache()
-        return None
-
-    drive_session = drive_store.require_session(request)
-    drive_store.ensure_local(drive_session)
-    return {**drive_session, "drive": drive_session, "auth": False}
-
-
-def _drive_session(session: dict | None, *, required: bool = False) -> dict | None:
-    drive = session.get("drive") if session else None
-    if required and not drive:
-        raise HTTPException(401, "Connect Google Drive to use this feature.")
-    return drive
+    # Anonymous server SQLite is deliberately limited to trusted local development.
+    if os.getenv("PRESSURE_ROOM_ALLOW_LOCAL_API", "").lower() != "true":
+        raise HTTPException(403, "Server-local storage is disabled. Use browser storage or sign in.")
+    db.bind_default_cache()
+    return None
 
 
 def _save(session: dict | None, project_id: str | None) -> None:
     if project_id:
         workspace_ops.changed(project_id)
-    if not (session and project_id):
-        return
-    drive = _drive_session(session)
-    if drive and supabase_store.can_manage_drive(session, project_id):
-        drive_store.save_project(drive, project_id)
 
 
 @app.get("/api/health")
@@ -167,7 +130,7 @@ def health():
     return {
         "ok": True,
         "version": "0.7.1",
-        "storage": drive_store.storage_mode(),
+        "storage": supabase_store.storage_mode() if supabase_store.enabled() else "local-sqlite",
         "cache": db.database_backend(),
         "durable": supabase_store.storage_mode(),
         "auth": "supabase-magic-link" if auth_store.enabled() else "legacy",
@@ -180,14 +143,14 @@ def ready():
         db.ping()
     except Exception as exc:
         raise HTTPException(503, "Local cache unavailable")
-    error = auth_store.configuration_error() or drive_store.configuration_error() or supabase_store.configuration_error()
+    error = auth_store.configuration_error() or supabase_store.configuration_error()
     if error:
         raise HTTPException(503, error)
     if supabase_store.enabled():
         supabase_store.ping()
     return {
         "ok": True,
-        "storage": drive_store.storage_mode(),
+        "storage": supabase_store.storage_mode() if supabase_store.enabled() else "local-sqlite",
         "durable": supabase_store.storage_mode(),
         "auth": "supabase-magic-link" if auth_store.enabled() else "legacy",
     }
@@ -222,54 +185,6 @@ def auth_accept_invite(payload: InviteAcceptPayload, request: Request):
     result = supabase_store.accept_invite(session, payload.token)
     db.bind_user_cache(session["sub"])
     supabase_store.hydrate_user(session)
-    return result
-
-
-@app.get("/api/google/status")
-def google_status(request: Request):
-    return drive_store.status(request)
-
-
-@app.get("/api/google/connect")
-def google_connect():
-    return drive_store.connect_response()
-
-
-@app.get("/api/google/callback")
-def google_callback(request: Request, code: str, state: str):
-    return drive_store.callback_response(request, code, state)
-
-
-@app.post("/api/google/disconnect")
-def google_disconnect(request: Request):
-    return drive_store.disconnect_response(request)
-
-
-@app.post("/api/google/sync")
-def google_sync(request: Request):
-    session = _prepare(request)
-    drive = _drive_session(session, required=True)
-    result = drive_store.sync_all_from_drive(drive, cache_sub=session.get("sub") if session else None)
-    if supabase_store.enabled() and session:
-        supabase_store.save_all(session)
-    return {"ok": True, **result}
-
-
-
-
-@app.get("/api/google/picker")
-def google_picker(request: Request):
-    session = drive_store.require_session(request)
-    return drive_store.picker_bootstrap(session)
-
-
-@app.post("/api/google/fountain/open")
-@workspace_request
-def google_fountain_open(payload: FountainOpenPayload, request: Request):
-    session = _prepare(request)
-    drive = _drive_session(session, required=True)
-    result = fountain_link.open_from_drive(drive, payload.file_id)
-    _save(session,result["project_id"])
     return result
 
 
@@ -324,7 +239,6 @@ def rename_project(project_id: str, payload: NamePayload, request: Request):
         raise HTTPException(404, "Project not found")
     db.update("projects", project_id, {"title": title})
     _save(session, project_id)
-    workspace_ops.rename_drive_mirror(project_id)
     workspace_ops.record_event(project_id, "project.renamed", {"from": before["title"], "to": title})
     return {"ok": True, "title": title}
 
@@ -363,17 +277,11 @@ def permanently_delete_project(project_id: str, payload: PermanentDeletePayload,
         raise HTTPException(404, "Project is not in your Trash.")
     if payload.confirm_title.strip() != str(item.get("title") or ""):
         raise HTTPException(400, "Type the project title exactly to delete it permanently.")
-    drive = _drive_session({**session, "drive": drive_store.session_from_request(request) if drive_store.enabled() else None})
-    mirror_deleted = False
-    if payload.delete_drive_mirror:
-        if not drive:
-            raise HTTPException(400, "Connect Google Drive before deleting its mirror, or leave the mirror in Drive.")
-        mirror_deleted = drive_store.delete_project_mirror(drive, project_id)
     supabase_store.permanently_delete_project(session, project_id)
     db.bind_user_cache(session["sub"])
     if db.one("SELECT id FROM projects WHERE id=?", [project_id]):
         db.delete("projects", project_id)
-    return {"ok": True, "project_id": project_id, "drive_mirror_deleted": mirror_deleted}
+    return {"ok": True, "project_id": project_id}
 
 
 @app.get("/api/projects/{project_id}")
@@ -731,6 +639,7 @@ def export(project_id: str, kind: str, request: Request):
     _prepare(request)
     try:
         payload = db.project_payload(project_id, include_snapshots=(kind == "package"))
+        payload.pop("project_source", None)  # No external-file metadata in exported copies
     except KeyError:
         raise HTTPException(404, "Project not found")
     title = "".join(c if c.isalnum() or c in " -_" else "_" for c in payload["project"]["title"])[:120] or "Story"
@@ -760,7 +669,7 @@ def import_project(
         raise HTTPException(413, "Project package exceeds the 10 MiB limit")
     try:
         payload = read_package(raw)
-        # A portable upload must not authorize writes to an embedded Drive file ID.
+        # An imported backup cannot authorize writing to a legacy external file.
         payload.pop("project_source", None)
         if mode == "replace" and db.one("SELECT id FROM projects WHERE id=?", [payload["project"]["id"]]):
             check_revision(request, payload["project"]["id"])
@@ -769,42 +678,3 @@ def import_project(
         raise HTTPException(400, "Invalid project package. No imported changes were saved.")
     _save(session, pid)
     return {"project_id": pid}
-
-
-class ResolvePayload(BaseModel):
-    action: str
-
-
-@app.post('/api/projects/{project_id}/sync')
-def resolve_sync(project_id: str, payload: ResolvePayload, request: Request):
-    session=_prepare(request)
-    drive=_drive_session(session, required=True)
-    if auth_store.enabled():
-        supabase_store.require_role(session, project_id, 'owner')
-    with drive_store.SYNC_LOCK:
-        result=drive_store.resolve_project(drive,project_id,payload.action)
-        if supabase_store.enabled() and session:
-            supabase_store.save_all(session)
-        result['revision']=db.project_revision(result['project_id'])
-        return result
-
-
-@app.post('/api/projects/{project_id}/fountain-branch')
-@workspace_request
-def select_fountain_branch(project_id: str, payload: Payload, request: Request):
-    session=_prepare(request)
-    check_revision(request,project_id)
-    source=db.get_project_source(project_id)
-    branch_id=payload.data.get('branch_id')
-    if not source or not db.one('SELECT id FROM branches WHERE id=? AND project_id=?',[branch_id,project_id]):
-        raise HTTPException(400,'Choose a path belonging to this linked story.')
-    db.upsert_project_source(project_id,branch_id=branch_id)
-    _save(session,project_id)
-    return {'ok':True}
-
-
-@app.get('/api/projects/{project_id}/sync')
-@workspace_request
-def get_sync(project_id: str, request: Request):
-    _prepare(request)
-    return db.sync_status(project_id)

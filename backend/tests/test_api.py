@@ -30,6 +30,8 @@ def test_workspace_export_and_import():
         pid = projects[0]["id"]
         workspace = client.get(f"/api/projects/{pid}").json()
         assert workspace["project"]["title"] == "The Last Favor"
+        assert "sync" not in workspace
+        assert "project_source" not in workspace
         ep = workspace["episodes"][0]
         diagnostics = client.get(f"/api/episodes/{ep['id']}/diagnostics").json()
         assert diagnostics["mri"]
@@ -122,17 +124,10 @@ def test_causal_link_validation_is_clear_and_duplicate_safe():
 
 
 
-def test_google_drive_status_defaults_to_local_without_oauth_config():
-    with TestClient(app) as client:
-        status = client.get("/api/google/status")
-        assert status.status_code == 200
-        assert status.json()["storage"] == "local-sqlite"
-
-
-def test_canonical_drive_payload_carries_snapshot_history_without_recursion():
+def test_canonical_payload_carries_snapshot_history_without_recursion():
     with TestClient(app) as client:
         pid = client.get("/api/projects").json()[0]["id"]
-        snap = client.post(f"/api/projects/{pid}/snapshots", json={"label": "Drive checkpoint"})
+        snap = client.post(f"/api/projects/{pid}/snapshots", json={"label": "Snapshot checkpoint"})
         assert snap.status_code == 200
         canonical = db.project_payload(pid, include_snapshots=True)
         assert canonical["format_version"] == 2
@@ -140,15 +135,15 @@ def test_canonical_drive_payload_carries_snapshot_history_without_recursion():
         nested = json.loads(canonical["snapshots"][0]["payload_json"])
         assert "snapshots" not in nested
 
-def test_google_user_caches_are_isolated(tmp_path, monkeypatch):
-    """Two Google users must never share the same ephemeral SQLite cache."""
+def test_authenticated_user_caches_are_isolated(tmp_path, monkeypatch):
+    """Two authenticated users must never share the same ephemeral SQLite cache."""
     monkeypatch.setenv(
         "PRESSURE_ROOM_USER_CACHE_DIR",
         str(tmp_path / "user-cache"),
     )
 
     try:
-        path_a = db.bind_user_cache("google-sub-user-a")
+        path_a = db.bind_user_cache("supabase-sub-user-a")
         db.clear_projects()
 
         ts = db.now_iso()
@@ -163,7 +158,7 @@ def test_google_user_caches_are_isolated(tmp_path, monkeypatch):
             },
         )
 
-        path_b = db.bind_user_cache("google-sub-user-b")
+        path_b = db.bind_user_cache("supabase-sub-user-b")
         assert path_b != path_a
         assert db.get_projects() == []
 
@@ -180,7 +175,7 @@ def test_google_user_caches_are_isolated(tmp_path, monkeypatch):
         )
         assert [p["title"] for p in db.get_projects()] == ["User B Story"]
 
-        db.bind_user_cache("google-sub-user-a")
+        db.bind_user_cache("supabase-sub-user-a")
         projects_a = db.get_projects()
         assert [p["id"] for p in projects_a] == [project_a]
         assert [p["title"] for p in projects_a] == ["User A Story"]

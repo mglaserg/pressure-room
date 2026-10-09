@@ -144,7 +144,7 @@ export default function WriteView({workspace, episode, sceneId, setSceneId, relo
                 <button type="button" className={viewMode==='edit'?'active':''} aria-pressed={viewMode==='edit'} onClick={()=>chooseView('edit')}>Edit</button>
                 <button type="button" className={viewMode==='page'?'active':''} aria-pressed={viewMode==='page'} onClick={()=>chooseView('page')}>Page</button>
               </div>
-              <div className={`save-state ${saveState}`} role="status" aria-live="polite"><i/>{saveState==='saving'?'Saving…':saveState==='conflict'?'Conflict · draft kept here':saveState==='pending'?'Saved here · Drive pending':saveState==='offline'?'Draft on device · sync failed':saveState==='uncached'?'Backup unavailable · keep this tab open':storageScope.startsWith('local:')?'Saved in this browser':'Synced to Drive'}{(saveState==='offline'||saveState==='uncached')&&<button className="quiet-action" onClick={()=>saver.current?.flush()}>Retry</button>}</div>
+              <div className={`save-state ${saveState}`} role="status" aria-live="polite"><i/>{saveState==='saving'?'Saving…':saveState==='conflict'?'Conflict · draft kept here':saveState==='pending'?'Save pending':saveState==='offline'?'Draft on device · save failed':saveState==='uncached'?'Backup unavailable · keep this tab open':storageScope.startsWith('local:')?'Saved in this browser':'Saved to Supabase'}{(saveState==='offline'||saveState==='uncached')&&<button className="quiet-action" onClick={()=>saver.current?.flush()}>Retry</button>}</div>
             </div>
           </div>
           {actionMessage&&<p className="form-message writer-action-message" role="alert">{actionMessage}</p>}

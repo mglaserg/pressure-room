@@ -1,4 +1,4 @@
-from app.fountain_link import parse_fountain
+from app.fountain_parser import parse_fountain
 
 
 def test_parse_fountain_title_and_scenes():

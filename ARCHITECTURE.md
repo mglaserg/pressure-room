@@ -26,9 +26,8 @@ linked to **Characters**, **Causal Links**, **Bills**, **Notes**, and **Snapshot
 ### Backend
 - FastAPI
 - SQLite as the local / ephemeral working cache
-- optional Supabase/Postgres durable live state, accessed server-side through PostgREST
-- optional Supabase Auth magic-link identity with owner/editor/viewer project membership
-- Google Drive `.pressureroom` files as an owner-controlled portable mirror/export when Supabase Auth is enabled; canonical legacy fallback when it is not
+- Supabase/Postgres durable live state for authenticated cloud accounts, accessed server-side through PostgREST
+- Supabase Auth magic-link identity with owner/editor/viewer project membership
 - normalized UUID-based schema inherited from V0.1
 - export/import service
 - diagnostic service
@@ -37,7 +36,7 @@ linked to **Characters**, **Causal Links**, **Bills**, **Notes**, and **Snapshot
 
 The backend opens the existing `data/pressure_room.db` location and performs additive migrations. Older scene rows receive `screenplay_text` plus the Suspense Engine fields `audience_knows`, `audience_waits_for`, and `withheld_information`; existing project/character/episode/scene/bill IDs remain intact.
 
-When Supabase is configured, each project is persisted as the existing portable project payload in Postgres JSONB with a content revision and Drive mirror state. Mutations use compare-and-swap on the prior revision so a stale worker cannot silently replace a newer story.
+When Supabase is configured, each project is persisted as the existing portable project payload in Postgres JSONB with a content revision and legacy compatibility metadata. Mutations use compare-and-swap on the prior revision so a stale worker cannot silently replace a newer story.
 
 ## Information architecture
 

@@ -1,8 +1,7 @@
-import {canonicalGoogleConnectUrl, proxyHeaders} from '../../../lib/proxy-policy.mjs';
+import {proxyHeaders} from '../../../lib/proxy-policy.mjs';
 
 const API_ORIGIN = (process.env.PRESSURE_ROOM_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
 const TIMEOUT_MS = 60000;
-const CANONICAL_ORIGIN = (process.env.PRESSURE_ROOM_CANONICAL_ORIGIN || 'https://pressure-room.com').replace(/\/$/, '');
 
 export const dynamic = 'force-dynamic';
 
@@ -12,8 +11,6 @@ async function proxy(request, context) {
     return Response.json({detail: 'Invalid API path'}, {status: 400});
   }
   const incoming = new URL(request.url);
-  const canonicalConnect = canonicalGoogleConnectUrl({path, incomingUrl: request.url, canonicalOrigin: CANONICAL_ORIGIN});
-  if (canonicalConnect) return Response.redirect(canonicalConnect, 307);
 
   const target = `${API_ORIGIN}/api/${path.map(encodeURIComponent).join('/')}${incoming.search}`;
 

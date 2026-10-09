@@ -1,5 +1,5 @@
 'use client';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {api, create, getStorageMode, remoteApi, remove, setStorageMode} from '@/lib/api';
 import WriteView from '@/components/WriteView';
 import {flushDrafts} from '@/lib/draft-saver.mjs';
@@ -9,8 +9,6 @@ import HelpView from '@/components/HelpView';
 import ShareSheet from '@/components/ShareSheet';
 import Modal from '@/components/Modal';
 import RoomMenu from '@/components/RoomMenu';
-import SyncNotice from '@/components/SyncNotice';
-import GoogleFountainPicker from '@/components/GoogleFountainPicker';
 
 const NAV = [
   ['write','Write','The page'],
@@ -32,15 +30,11 @@ export default function Home(){
   const [share,setShare]=useState(false);
   const [newStory,setNewStory]=useState(false);
   const [error,setError]=useState('');
-  const [drive,setDrive]=useState(null);
   const [auth,setAuth]=useState(null);
   const [authMessage,setAuthMessage]=useState('');
   const [presence,setPresence]=useState([]);
-  const [driveNotice,setDriveNotice]=useState('');
   const [storageMode,setStorageModeState]=useState('');
   const [projectsReady,setProjectsReady]=useState(false);
-  const driveImport=useRef(null);
-  const [driveImportBusy,setDriveImportBusy]=useState(false);
 
   async function loadProjects(prefer){
     setProjectsReady(false);
@@ -64,52 +58,25 @@ export default function Home(){
   }
 
   async function boot(){
-    const authStatus=await remoteApi('/auth/status').catch(()=>({enabled:false,configured:false,authenticated:false,error:'Account status could not be loaded.'}));
-    setAuth(authStatus);
-    const status=await remoteApi('/google/status').catch(()=>({configured:false,required:false,connected:false,error:'Google Drive status could not be loaded.'}));
-    setDrive(status);
-    let preferred=getStorageMode();
-
-    if(preferred==='local'){
+    const status=await remoteApi('/auth/status');
+    setAuth(status);
+    const preferred=getStorageMode();
+    // Previously stored non-local preferences open the Supabase workspace after sign-in.
+    if(preferred==='local'||!status.enabled){
+      setStorageMode('local');
       setStorageModeState('local');
       await loadProjects();
-      return authStatus;
+      return status;
     }
-
-    if(authStatus.enabled){
-      if(!authStatus.authenticated){
-        setStorageModeState('');
-        setProjectsReady(true);
-        return authStatus;
-      }
-      if(preferred==='drive'||!preferred){setStorageMode('cloud');preferred='cloud'}
-      setStorageModeState('cloud');
-      await loadProjects();
-      return authStatus;
-    }
-
-    if(preferred==='drive'){
-      if(status.connected){
-        setStorageModeState('drive');
-        await loadProjects();
-        return authStatus;
-      }
-      setStorageMode('');
+    if(!status.authenticated){
       setStorageModeState('');
       setProjectsReady(true);
-      return authStatus;
+      return status;
     }
-
-    if(status.connected){
-      setStorageMode('drive');
-      setStorageModeState('drive');
-      await loadProjects();
-      return authStatus;
-    }
-
-    setStorageModeState('');
-    setProjectsReady(true);
-    return authStatus;
+    setStorageMode('cloud');
+    setStorageModeState('cloud');
+    await loadProjects();
+    return status;
   }
 
   useEffect(()=>{
@@ -124,12 +91,6 @@ export default function Home(){
         await remoteApi('/auth/session',{method:'POST',body:JSON.stringify({access_token:accessToken})});
         window.history.replaceState({},'',window.location.pathname+window.location.search);
         setAuthMessage('Signed in. Opening your room…');
-      }
-      if(params.get('google_drive')==='permission_required'){
-        setDriveNotice('Google connected, but Drive edit permission was not granted. Connect again and allow Pressure Room to create and edit the files you use with it.');
-        params.delete('google_drive');
-        const q=params.toString();
-        window.history.replaceState({},'',window.location.pathname+(q?`?${q}`:''));
       }
       const status=await boot();
       const invite=params.get('invite');
@@ -206,44 +167,7 @@ export default function Home(){
     await loadProjects();
   }
 
-  async function chooseCloudMode(){
-    if(!auth?.authenticated){setStorageModeState('');return}
-    setStorageMode('cloud');
-    setStorageModeState('cloud');
-    await loadProjects();
-  }
-
-  function chooseDriveMode(){
-    if(auth?.enabled){
-      if(drive?.connected){void chooseCloudMode();return}
-      window.location.href='/api/google/connect';
-      return;
-    }
-    setStorageMode('drive');
-    setStorageModeState('drive');
-    if(drive?.connected){window.location.reload();return;}
-    window.location.href='/api/google/connect';
-  }
-
-  async function importFirstDriveProject(file){
-    if(!file)return;
-    setDriveImportBusy(true);
-    try{
-      const body=new FormData();
-      body.append('file',file);
-      const result=await api('/import?mode=replace',{method:'POST',body});
-      await loadProjects(result.project_id);
-    }catch(e){
-      setError(e.message||'Could not import that Pressure Room project.');
-    }finally{
-      setDriveImportBusy(false);
-      if(driveImport.current)driveImport.current.value='';
-    }
-  }
-
   const showLogin = auth?.enabled && !auth.authenticated && storageMode!=='local' && !workspace;
-  const showChooser = !auth?.enabled && storageMode==='' && drive!==null && !workspace;
-  const showDriveEmpty = !auth?.enabled && storageMode==='drive' && drive?.connected && projectsReady && projects.length===0 && !workspace;
   const showCloudEmpty = auth?.authenticated && storageMode==='cloud' && projectsReady && projects.length===0 && !workspace;
   const showLocalEmpty = storageMode==='local' && projectsReady && projects.length===0 && !workspace;
 
@@ -255,59 +179,21 @@ export default function Home(){
 
   if(showLogin)return <AuthGate auth={auth} message={authMessage} onLocal={chooseLocalMode} onSent={setAuthMessage}/>;
 
-  if(showChooser)return <main className="boot">
-    <BrandMark large/>
-    <div className="boot-copy">
-      <span className="eyebrow">Choose your room</span>
-      <h1>Where should Pressure Room keep your stories?</h1>
-      <p>Start locally on this device, or connect Google Drive and keep your projects in your own cloud storage.</p>
-      <p className="muted">Local mode stores stories only in this browser on this device. Google Drive mode keeps each story as a portable Pressure Room project file in your Drive.</p>
-      {driveNotice&&<p className="form-message" role="alert">{driveNotice}</p>}
-    </div>
-    <div className="boot-actions">
-      <button className="button" onClick={chooseLocalMode}>Continue on this device</button>
-      {drive?.configured
-        ? <button className="button secondary" onClick={chooseDriveMode}>Connect Google Drive</button>
-        : <button className="button secondary" disabled title={drive?.error||'Google Drive is not configured'}>Google Drive unavailable</button>}
-    </div>
-  </main>;
-
   if(showCloudEmpty)return <>
     <main className="boot">
       <BrandMark large/>
       <div className="boot-copy">
         <span className="eyebrow">Signed in as {auth?.email}</span>
         <h1>Your room is empty</h1>
-        <p>Create your first story. Supabase keeps the live project state; Google Drive can be connected later as an optional portable mirror.</p>
+        <p>Create your first story. Supabase keeps your stories saved across devices.</p>
         {authMessage&&<p className="form-message">{authMessage}</p>}
       </div>
       <div className="boot-actions">
         <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
         <button className="button secondary" onClick={()=>setRoomMenu(true)}>Trash & account</button>
-        {drive?.configured&&!drive?.connected&&<button className="button secondary" onClick={chooseDriveMode}>Connect Google Drive</button>}
       </div>
     </main>
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
-    <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
-  </>;
-
-  if(showDriveEmpty)return <>
-    <main className="boot">
-      <BrandMark large/>
-      <div className="boot-copy">
-        <span className="eyebrow">Your Drive is connected</span>
-        <h1>Your room is empty</h1>
-        <p>Nothing has been written here yet. Start a new story, or bring an existing Pressure Room project into the room.</p>
-        <p className="muted">Your stories will be saved automatically in the Pressure Room folder in your Google Drive{drive?.email?` as ${drive.email}`:''}.</p>
-      </div>
-      <div className="boot-actions">
-        <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
-        {drive?.picker_configured&&<GoogleFountainPicker onOpened={async result=>await loadProjects(result.project_id)}/>}
-        <input ref={driveImport} type="file" accept=".pressureroom,.zip" hidden onChange={e=>importFirstDriveProject(e.target.files?.[0])}/>
-        <button className="button secondary" disabled={driveImportBusy} onClick={()=>driveImport.current?.click()}>{driveImportBusy?'Importing…':'Import Pressure Room project'}</button>
-      </div>
-    </main>
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
@@ -317,22 +203,21 @@ export default function Home(){
       <div className="boot-copy">
         <span className="eyebrow">This device</span>
         <h1>Your room is empty</h1>
-        <p>Start a story right away without connecting anything. You can add Google Drive later if you want cloud-backed projects.</p>
+        <p>Start a story on this device. Sign in to use a cloud workspace across devices.</p>
         <p className="muted">Local stories are saved in this browser on this device.</p>
       </div>
       <div className="boot-actions">
         <button className="button" onClick={()=>setNewStory(true)}>Create a story</button>
         <button className="button secondary" onClick={()=>setShare(true)}>Restore a backup</button>
         <button className="button secondary" onClick={()=>setRoomMenu(true)}>Trash & account</button>
-        {drive?.configured&&<button className="button secondary" onClick={chooseDriveMode}>Use Google Drive instead</button>}
       </div>
     </main>
-    <ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
+    <ShareSheet open={share} onClose={()=>setShare(false)} project={project} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
 
-  if(drive===null||(!workspace&&!(projectsReady&&projects.length===0)))return <main className="boot"><BrandMark large/><div className="boot-copy"><span className="eyebrow">Pressure Room</span><h1>Opening the room</h1><p className="muted">{storageMode==='cloud'?'Opening your cloud workspace.':storageMode==='drive'&&drive?.connected?'Bringing your stories down from Google Drive.':storageMode==='local'?'Opening your local room on this device.':'Preparing the room.'}</p></div><div className="boot-pulse" aria-hidden="true"><i/><i/><i/></div></main>;
+  if(auth===null||(!workspace&&!(projectsReady&&projects.length===0)))return <main className="boot"><BrandMark large/><div className="boot-copy"><span className="eyebrow">Pressure Room</span><h1>Opening the room</h1><p className="muted">{storageMode==='cloud'?'Opening your cloud workspace.':storageMode==='local'?'Opening your local room on this device.':'Preparing the room.'}</p></div><div className="boot-pulse" aria-hidden="true"><i/><i/><i/></div></main>;
 
   return <main className="app-shell">
     <header className="topbar">
@@ -355,16 +240,15 @@ export default function Home(){
     </nav>
 
     {error&&<div className="sync-notice" role="alert"><p>{error}</p><button className="button secondary" onClick={()=>setError('')}>Dismiss</button></div>}
-    <SyncNotice workspace={workspace} onResolved={id=>loadProjects(id)} onBackup={()=>setShare(true)}/>
     <div className="workspace">
-      {mode==='write'&&<WriteView onSceneSaved={(id,data,result)=>setWorkspace(ws=>ws?{...ws,revision:result.revision||ws.revision,sync:result.sync||ws.sync,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${auth?.email||drive?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
+      {mode==='write'&&<WriteView onSceneSaved={(id,data,result)=>setWorkspace(ws=>ws?{...ws,revision:result.revision||ws.revision,scenes:ws.scenes.map(scene=>scene.id===id?{...scene,...data}:scene)}:ws)} storageScope={`${storageMode}:${auth?.email||"device"}`} workspace={workspace} episode={episode} sceneId={sceneId} setSceneId={setSceneId} reload={reload}/>}
       {mode==='structure'&&<StructureView workspace={workspace} project={project} branch={branch} episode={episode} reload={reload}/>}
       {mode==='diagnose'&&<DiagnoseView episode={episode}/>}
       {mode==='help'&&<HelpView/>}
     </div>
 
-    {<ShareSheet open={share} onClose={()=>setShare(false)} project={project} drive={drive} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
-    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} drive={drive} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
+    {<ShareSheet open={share} onClose={()=>setShare(false)} project={project} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
+    <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </main>
 }
@@ -381,7 +265,7 @@ function AuthGate({auth,message,onLocal,onSent}){
   }
   return <main className="boot">
     <BrandMark large/>
-    <div className="boot-copy"><span className="eyebrow">Pressure Room account</span><h1>Enter the room</h1><p>Use a magic link. No password, no Google account required.</p><p className="muted">Google Drive is optional now; your account and project access live in Supabase.</p>{auth?.error&&<p className="form-message" role="alert">{auth.error}</p>}{message&&<p className="form-message">{message}</p>}{error&&<p className="form-message" role="alert">{error}</p>}</div>
+    <div className="boot-copy"><span className="eyebrow">Pressure Room account</span><h1>Enter the room</h1><p>Use a magic link. No password required.</p><p className="muted">Your account and project access live in Supabase.</p>{auth?.error&&<p className="form-message" role="alert">{auth.error}</p>}{message&&<p className="form-message">{message}</p>}{error&&<p className="form-message" role="alert">{error}</p>}</div>
     <div className="form-stack auth-form"><label>Email<input type="email" autoComplete="email" value={email} placeholder="you@example.com" onChange={e=>setEmail(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void send()}}/></label><button className="button" disabled={busy||!email.trim()} onClick={send}>{busy?'Sending…':'Email me a magic link'}</button><button className="button secondary" onClick={onLocal}>Continue only on this device</button></div>
   </main>
 }

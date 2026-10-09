@@ -19,12 +19,3 @@ export function proxyHeaders(input) {
   for (const name of FORWARDED_HEADER_BLOCKLIST) headers.delete(name);
   return headers;
 }
-
-export function canonicalGoogleConnectUrl({path, incomingUrl, canonicalOrigin}) {
-  if (path.join('/') !== 'google/connect') return null;
-  const incoming = new URL(incomingUrl);
-  if (['localhost', '127.0.0.1', '::1'].includes(incoming.hostname)) return null;
-  const canonical = new URL(canonicalOrigin);
-  if (incoming.origin === canonical.origin) return null;
-  return `${canonical.origin}/api/google/connect${incoming.search}`;
-}

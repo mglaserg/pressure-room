@@ -18,7 +18,6 @@ SUPABASE_TABLE = os.getenv("PRESSURE_ROOM_SUPABASE_TABLE", "pressure_room_projec
 HTTP_TIMEOUT = 15.0
 _TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _ROLE_ORDER = {"viewer": 0, "editor": 1, "owner": 2}
-_LEGACY_CLAIMS: set[tuple[str, str]] = set()
 
 
 def _flag(name: str, default: str = "false") -> bool:
@@ -54,7 +53,7 @@ def storage_mode() -> str:
 def _sub(session: dict) -> str:
     sub = str(session.get("sub", "")).strip()
     if not sub:
-        label = "Supabase user identity" if auth_mode() else "Google account identity"
+        label = "Supabase user identity"
         raise HTTPException(401, f"{label} is missing. Sign in again.")
     return sub
 
@@ -207,16 +206,6 @@ def require_role(session: dict, project_id: str, minimum: str = "viewer") -> str
     return role
 
 
-def can_manage_drive(session: dict, project_id: str) -> bool:
-    """Only owners mirror shared stories; a brand-new unsaved project belongs to its creator."""
-    if not auth_mode():
-        return True
-    meta = _project_meta(project_id)
-    if not meta:
-        return True
-    return role_for(session, project_id) == "owner"
-
-
 def _row(session: dict, project_id: str, meta: dict | None = None) -> dict:
     payload = db.project_payload(project_id, include_snapshots=True)
     owner_id = str((meta or {}).get("owner_id") or _sub(session))
@@ -226,7 +215,6 @@ def _row(session: dict, project_id: str, meta: dict | None = None) -> dict:
         "project_id": project_id,
         "payload": payload,
         "revision": db.project_revision(project_id),
-        "sync_state": db.sync_job(project_id),
         "owner_id": owner_id if auth_mode() else (meta or {}).get("owner_id"),
         "created_by": (meta or {}).get("created_by") or (owner_id if auth_mode() else None),
         "updated_by": _sub(session) if auth_mode() else (meta or {}).get("updated_by"),
@@ -239,7 +227,7 @@ def save_project(session: dict, project_id: str, *, expected_revision: str | Non
     if not enabled():
         return {"stored": False}
 
-    # Legacy Google-auth storage path remains unchanged until magic-link auth is enabled.
+    # Development-only legacy path, without any external-file synchronization.
     if not auth_mode():
         row = _row(session, project_id)
         if expected_revision:
@@ -251,7 +239,7 @@ def save_project(session: dict, project_id: str, *, expected_revision: str | Non
                     "revision": f"eq.{expected_revision}",
                     "select": "project_id,revision",
                 },
-                json={"payload": row["payload"], "revision": row["revision"], "sync_state": row["sync_state"], "updated_at": row["updated_at"]},
+                json={"payload": row["payload"], "revision": row["revision"], "updated_at": row["updated_at"]},
                 prefer="return=representation",
             )
             records = response.json() if response.content else []
@@ -285,7 +273,6 @@ def save_project(session: dict, project_id: str, *, expected_revision: str | Non
             json={
                 "payload": row["payload"],
                 "revision": row["revision"],
-                "sync_state": row["sync_state"],
                 "updated_by": _sub(session),
                 "updated_at": row["updated_at"],
             },
@@ -303,7 +290,6 @@ def save_project(session: dict, project_id: str, *, expected_revision: str | Non
             json={
                 "payload": row["payload"],
                 "revision": row["revision"],
-                "sync_state": row["sync_state"],
                 "updated_by": _sub(session),
                 "updated_at": row["updated_at"],
             },
@@ -380,96 +366,6 @@ def list_projects(session: dict) -> list[dict]:
     return data
 
 
-def claim_legacy_workspace(session: dict, google_session: dict | None) -> int:
-    """Move a pre-magic-link Google partition to the authenticated Supabase user once."""
-    if not (enabled() and auth_mode() and google_session):
-        return 0
-    auth_sub = _sub(session)
-    google_sub = str(google_session.get("sub") or "").strip()
-    if not google_sub or google_sub == auth_sub:
-        return 0
-    auth_email = _email(session)
-    google_email = str(google_session.get("email") or "").strip().lower()
-    if auth_email and google_email and auth_email != google_email:
-        return 0
-    key = (auth_sub, google_sub)
-    if key in _LEGACY_CLAIMS:
-        return 0
-    response = _request(
-        "GET",
-        params={
-            "select": "user_sub,project_id,owner_id",
-            "user_sub": f"eq.{google_sub}",
-        },
-    )
-    rows = response.json() if response.content else []
-    claimed = 0
-    for row in rows:
-        project_id = str(row.get("project_id") or "")
-        owner = str(row.get("owner_id") or "")
-        if not project_id or (owner and owner != auth_sub):
-            continue
-        existing = _request(
-            "GET",
-            params={"select": "user_sub", "user_sub": f"eq.{auth_sub}", "project_id": f"eq.{project_id}", "limit": "1"},
-        ).json()
-        if existing:
-            _upsert_member(project_id, session, "owner")
-            continue
-        _request(
-            "PATCH",
-            params={"user_sub": f"eq.{google_sub}", "project_id": f"eq.{project_id}"},
-            json={
-                "user_sub": auth_sub,
-                "owner_id": auth_sub,
-                "created_by": auth_sub,
-                "updated_by": auth_sub,
-                "updated_at": db.now_iso(),
-            },
-            prefer="return=minimal",
-        )
-        _upsert_member(project_id, session, "owner")
-        claimed += 1
-    _LEGACY_CLAIMS.add(key)
-    return claimed
-
-
-def _restore_sync_state(project_id: str, state: Any) -> None:
-    if not isinstance(state, dict):
-        return
-    allowed = {"file_id", "etag", "operation_id", "payload_json", "stage", "status", "error"}
-    fields = {key: state.get(key) for key in allowed if key in state}
-    if fields:
-        db.set_sync(project_id, **fields)
-
-
-def save_sync_state(session: dict, project_id: str, *, story_revision: str | None = None) -> bool:
-    """Update Drive mirror metadata without ever overwriting newer story content."""
-    if not enabled():
-        return False
-    revision = story_revision or db.project_revision(project_id)
-    meta = _project_meta(project_id)
-    if auth_mode():
-        require_role(session, project_id, "editor")
-    params = {
-        "project_id": f"eq.{project_id}",
-        "revision": f"eq.{revision}",
-        "select": "project_id",
-    }
-    if meta:
-        params["user_sub"] = f"eq.{meta['user_sub']}"
-    elif not auth_mode():
-        params["user_sub"] = f"eq.{_sub(session)}"
-    response = _request(
-        "PATCH",
-        params=params,
-        json={"sync_state": db.sync_job(project_id)},
-        prefer="return=representation",
-    )
-    records = response.json() if response.content else []
-    return bool(records)
-
-
 def hydrate_user(session: dict) -> dict:
     """Make the local working cache reflect durable Postgres state visible to this user."""
     if not enabled():
@@ -491,13 +387,7 @@ def hydrate_user(session: dict) -> dict:
             local_revision = db.project_revision(project_id) if local else None
             if local_revision != record.get("revision"):
                 db.import_payload(payload, mode="replace")
-                _restore_sync_state(project_id, record.get("sync_state"))
                 pulled += 1
-                continue
-            local_job = db.sync_job(project_id)
-            remote_job = record.get("sync_state") if isinstance(record.get("sync_state"), dict) else None
-            if remote_job and (not local_job or str(remote_job.get("updated_at") or "") >= str(local_job.get("updated_at") or "")):
-                _restore_sync_state(project_id, remote_job)
     return {"pulled": pulled, "remote": len(records)}
 
 

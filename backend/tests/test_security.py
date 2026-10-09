@@ -1,12 +1,10 @@
 import io
 import json
 import zipfile
-import time
 
 import pytest
-from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
-from app import db, drive_store
+from app import db
 from app.main import app
 from app.exporters import read_package, package_bytes
 
@@ -50,12 +48,6 @@ def test_snapshot_restore_preserves_history(isolated_db):
     assert db.one('SELECT id FROM snapshots WHERE id=?', [sid])
 
 
-def test_project_source_matches_schema(isolated_db):
-    pid = db.get_projects()[0]['id']
-    source = db.upsert_project_source(pid, source_kind='fountain', drive_file_id='valid-id', drive_file_name='test.fountain')
-    assert source['drive_file_id'] == 'valid-id'
-
-
 def test_package_limits_and_duplicate_json(monkeypatch):
     from app import exporters
     raw = io.BytesIO()
@@ -73,18 +65,6 @@ def test_package_limits_and_duplicate_json(monkeypatch):
         read_package(raw.getvalue())
 
 
-def test_session_expiration_enforced(monkeypatch):
-    key = Fernet.generate_key()
-    monkeypatch.setattr(drive_store, 'GOOGLE_CLIENT_ID', 'test')
-    monkeypatch.setattr(drive_store, 'GOOGLE_CLIENT_SECRET', 'test')
-    monkeypatch.setattr(drive_store, 'SESSION_KEY', key.decode())
-    monkeypatch.setattr(drive_store, 'PUBLIC_URL', 'https://example.com')
-    f = Fernet(key)
-    old = f.encrypt_at_time(b'{"sub":"user"}', int(time.time())-drive_store.SESSION_TTL-1)
-    assert drive_store._open(old.decode()) is None
-    assert drive_store._open(f.encrypt(b'{"sub":"user"}').decode())['sub'] == 'user'
-
-
 def test_cross_origin_mutations_and_private_response_headers(isolated_db):
     with TestClient(app) as client:
         response = client.post('/api/projects', json={'data':{'title':'Attack'}}, headers={'Origin':'https://attacker.example'})
@@ -92,7 +72,8 @@ def test_cross_origin_mutations_and_private_response_headers(isolated_db):
         fetch_metadata = client.post('/api/projects', json={'data':{'title':'Attack'}}, headers={'Sec-Fetch-Site':'cross-site'})
         assert fetch_metadata.status_code == 403
         assert client.get('/api/projects').headers['cache-control'] == 'no-store'
-        assert client.get('/api/google/disconnect').status_code == 405
+        assert client.get('/api/google/status').status_code != 200
+        assert client.post('/api/google/sync').status_code != 200
 
 
 def test_unicode_export_title_is_safe(isolated_db):
@@ -121,19 +102,6 @@ def test_body_limit_before_parsing(isolated_db, monkeypatch):
     with TestClient(app) as client:
         result=client.post('/api/projects',content=b'x'*21,headers={'Content-Type':'application/json'})
         assert result.status_code == 413
-
-
-def test_drive_pull_is_atomic(isolated_db, monkeypatch):
-    pid=db.get_projects()[0]['id']
-    original=db.project_payload(pid)
-    broken=json.loads(json.dumps(original));broken['scenes'][0]['bad_column']='bad'
-    monkeypatch.setattr(drive_store,'_bind_user_cache',lambda session:'test')
-    monkeypatch.setattr(drive_store,'_folder_id',lambda session:'folder')
-    monkeypatch.setattr(drive_store,'_project_files',lambda *args:[{'id':'remote','appProperties':{'pressure_room_project_id':pid}}])
-    monkeypatch.setattr(drive_store,'_download_project',lambda *args:broken)
-    monkeypatch.setattr(drive_store,'file_revision',lambda *args:'etag')
-    with pytest.raises(ValueError):drive_store.sync_all_from_drive({})
-    assert db.project_payload(pid)['scenes']==original['scenes']
 
 
 def test_patch_cannot_link_scenes_from_different_episodes(isolated_db):
