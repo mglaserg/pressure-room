@@ -24,7 +24,13 @@ export default function ShareSheet({open,onClose,project,onImported}) {
       };
       downloadBlob(await response.arrayBuffer(), filenames[kind], response.headers.get('content-type'));
       setMessage(kind === 'package' ? 'Backup downloaded. Keep it somewhere separate from this browser.' : 'Export downloaded.');
-    }catch(e){setMessage(e.message)}finally{setBusy(false)}
+    }catch(e){
+      const missingBackendExport = ['screenplay-pdf', 'screenplay-mobile-pdf'].includes(kind)
+        && /Unknown export kind/i.test(e.message);
+      setMessage(missingBackendExport
+        ? 'The deployed story server is out of date and does not support screenplay PDFs. Deploy the updated backend (GitHub Actions → Deploy Pressure Room backend), then try again.'
+        : e.message);
+    }finally{setBusy(false)}
   }
   async function importFile(file){
     if(!file)return;

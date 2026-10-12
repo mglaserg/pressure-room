@@ -1,0 +1,23 @@
+name: Verify Pressure Room backend
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  backend:
+    name: Backend tests, lockfile, and security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: '0.12.11'
+          python-version: '3.11'
+      - name: Install locked backend dependencies
+        run: uv sync --project backend --locked
+      - name: Test backend including screenplay PDF exports
+        run: uv run --project backend pytest backend/tests
+      - name: Verify Docker requirements match uv.lock
+        run: uv export --project backend --locked --no-dev --no-emit-project -o backend/requirements.lock && git diff --exit-code backend/requirements.lock
+      - name: Audit backend dependencies
+        run: uvx pip-audit==2.10.1 -r backend/requirements.lock

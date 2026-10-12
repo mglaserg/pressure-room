@@ -22,13 +22,13 @@ Never expose `SUPABASE_SECRET_KEY` or `PRESSURE_ROOM_SESSION_KEY` in browser or 
 
 ## ECS
 
-Container port: `8000`. Health check: `/api/health`; readiness: `/api/ready`. Deployment automation: `.github/workflows/deploy-backend-ecs-express.yml`. The workflow requires AWS role variables, `PRESSURE_ROOM_PUBLIC_URL`, `SUPABASE_URL`, `PRESSURE_ROOM_SESSION_KEY_ARN`, and `SUPABASE_SECRET_KEY_ARN`.
+Container port: `8000`. Health check: `/api/health`; readiness: `/api/ready`. Deployment automation: `.github/workflows/deploy-backend-ecs-express.yml`. The deploy job waits for **backend** tests, lockfile verification and audit; frontend checks run independently in `.github/workflows/check.yml`. A frontend-only failure does not prevent a backend fix from shipping. A failure of a backend test or security check still blocks deployment. The workflow requires AWS role variables, `PRESSURE_ROOM_PUBLIC_URL`, `SUPABASE_URL`, `PRESSURE_ROOM_SESSION_KEY_ARN`, and `SUPABASE_SECRET_KEY_ARN`.
 
 Deploy with `PRESSURE_ROOM_ALLOW_LOCAL_API=false` (default). Authenticated data must not depend on ECS filesystem persistence. The existing Postgres schema retains legacy nullable columns for backward compatibility; they are not used for synchronization.
 
 ## Verification
 
-1. Confirm `/api/ready` reports `durable: supabase-postgres` and `auth: supabase-magic-link`.
+1. Confirm `/api/ready` reports `durable: supabase-postgres` and `auth: supabase-magic-link`. Inspect `/api/health` for `build_sha` matching the successfully deployed Git commit, and `export_kinds` containing `screenplay-pdf` and `screenplay-mobile-pdf`. If those fields are absent, the running ECS service is on old code; fixing the frontend will not fix the export endpoint.
 2. Sign in via an email magic link, create/edit a story, then reopen it on another device.
 3. Check episode and scene persistence, invite permissions, export/import, Trash and restore.
 4. Confirm old `/api/google/*` endpoints no longer provide integration functions.

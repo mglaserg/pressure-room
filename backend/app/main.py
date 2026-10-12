@@ -92,6 +92,9 @@ class PermanentDeletePayload(BaseModel):
     confirm_title: str
 
 
+EXPORT_KINDS = ("package", "markdown", "fountain", "pdf", "screenplay-pdf", "screenplay-mobile-pdf")
+
+
 PATCH_FIELDS = {
     "projects": {"title", "premise", "theme"},
     "characters": {"name", "role", "want", "need", "core_belief", "moral_boundary", "fear", "temptation", "moral_score"},
@@ -131,6 +134,8 @@ def health():
     return {
         "ok": True,
         "version": "0.7.1",
+        "build_sha": os.getenv("PRESSURE_ROOM_BUILD_SHA", ""),
+        "export_kinds": list(EXPORT_KINDS),
         "storage": supabase_store.storage_mode() if supabase_store.enabled() else "local-sqlite",
         "cache": db.database_backend(),
         "durable": supabase_store.storage_mode(),

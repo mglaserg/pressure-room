@@ -21,7 +21,7 @@ env:
 
 jobs:
   verify:
-    uses: ./.github/workflows/check.yml
+    uses: ./.github/workflows/verify-backend.yml
   deploy:
     needs: verify
     name: Build and deploy backend
@@ -111,6 +111,7 @@ jobs:
           environment-variables: |
             [
               {"name": "PRESSURE_ROOM_PUBLIC_URL", "value": "${{ vars.PRESSURE_ROOM_PUBLIC_URL }}"},
+              {"name": "PRESSURE_ROOM_BUILD_SHA", "value": "${{ github.sha }}"},
               {"name": "SUPABASE_URL", "value": "${{ vars.SUPABASE_URL }}"},
               {"name": "PRESSURE_ROOM_AUTH_ENABLED", "value": "true"}
             ]

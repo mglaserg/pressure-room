@@ -23,6 +23,17 @@ def teardown_module():
         TEST_DB.unlink()
 
 
+def test_health_advertises_export_capabilities(monkeypatch):
+    monkeypatch.setenv("PRESSURE_ROOM_BUILD_SHA", "sample-commit")
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["build_sha"] == "sample-commit"
+    assert "screenplay-pdf" in body["export_kinds"]
+    assert "screenplay-mobile-pdf" in body["export_kinds"]
+
+
 def test_workspace_export_and_import():
     with TestClient(app) as client:
         projects = client.get("/api/projects").json()
