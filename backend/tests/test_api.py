@@ -270,3 +270,50 @@ def test_suspense_fields_round_trip_into_diagnostics():
         assert suspense['audience_waits_for'] == values['audience_waits_for']
         assert 'waiting' in suspense['active_hooks']
         assert 'withheld' in suspense['active_hooks']
+
+
+def test_pdf_downloads_only_the_requested_branch_and_full_fountain_remains_full():
+    from io import BytesIO
+    import pytest
+    PdfReader = pytest.importorskip('pypdf').PdfReader
+
+    with TestClient(app) as client:
+        pid = client.get('/api/projects').json()[0]['id']
+        ws = client.get(f'/api/projects/{pid}').json()
+        main = next(b for b in ws['branches'] if b['is_main'])['id']
+        main_ep = next(ep for ep in ws['episodes'] if ep['branch_id'] == main)
+        main_scenes = sorted((s for s in ws['scenes'] if s['episode_id'] == main_ep['id']), key=lambda s: s['scene_no'])
+        if len(main_scenes) < 2:
+            added = client.post(f'/api/episodes/{main_ep["id"]}/scenes', json={'data': {
+                'scene_no': 2, 'slugline': 'INT. LATER - DAY', 'screenplay_text': 'The story changes.'
+            }})
+            assert added.status_code == 200
+            ws = client.get(f'/api/projects/{pid}').json()
+            main_scenes = sorted((scene for scene in ws['scenes'] if scene['episode_id'] == main_ep['id']), key=lambda scene: scene['scene_no'])
+        # The first scene is the common introduction copied into both branches.
+        client.patch(f'/api/scenes/{main_scenes[0]["id"]}', json={'data': {'slugline': 'INT. COMMON INTRO - DAY'}})
+        cloned = client.post(f'/api/projects/{pid}/branches/{main}/clone', json={'name': 'Forked ending'})
+        assert cloned.status_code == 200
+        fork_id = cloned.json()['id']
+        ws = client.get(f'/api/projects/{pid}').json()
+        fork_ep = next(ep for ep in ws['episodes'] if ep['branch_id'] == fork_id)
+        fork_scenes = sorted((s for s in ws['scenes'] if s['episode_id'] == fork_ep['id']), key=lambda s: s['scene_no'])
+        assert len(fork_scenes) >= 2
+        client.patch(f'/api/scenes/{main_scenes[1]["id"]}', json={'data': {'slugline': 'INT. MAIN ONLY - DAY'}})
+        client.patch(f'/api/scenes/{fork_scenes[1]["id"]}', json={'data': {'slugline': 'INT. FORK ONLY - DAY'}})
+
+        for kind in ('pdf', 'screenplay-pdf', 'screenplay-mobile-pdf'):
+            response = client.get(f'/api/projects/{pid}/export/{kind}', params={'branch_id': fork_id})
+            assert response.status_code == 200
+            text = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
+            assert 'COMMON INTRO' in text, (kind, text)
+            assert 'FORK ONLY' in text, (kind, text)
+            assert 'MAIN ONLY' not in text, (kind, text)
+
+            main_pdf = client.get(f'/api/projects/{pid}/export/{kind}')
+            main_text = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(main_pdf.content)).pages)
+            assert 'MAIN ONLY' in main_text and 'FORK ONLY' not in main_text
+
+        fountain_text = client.get(f'/api/projects/{pid}/export/fountain').text
+        assert 'MAIN ONLY' in fountain_text and 'FORK ONLY' in fountain_text
+        assert client.get(f'/api/projects/{pid}/export/screenplay-pdf', params={'branch_id': 'not-in-project'}).status_code == 400

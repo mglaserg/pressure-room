@@ -95,3 +95,11 @@
   .writer-canvas{padding-bottom:calc(6rem + env(safe-area-inset-bottom))}
   .mobile-edit-scene{margin:0 0 .6rem;padding:.5rem 1rem;border:1px solid var(--border-subtle);border-radius:var(--radius-md)}
 }
+
+@media(max-width:680px){
+  /* Tabs get their natural width; short labels such as Bills do not occupy a full cell. */
+  .structure-subnav button{min-width:0;flex:0 0 auto;padding:.7rem .58rem}
+  /* No narrow, clipped input alongside a full-sized action button. */
+  .branch-card .inline-form:not(.snapshot-compare){display:grid;grid-template-columns:minmax(0,1fr)}
+  .branch-card .inline-form:not(.snapshot-compare)>.button{width:100%}
+}

@@ -5,7 +5,7 @@ import {api,isLocalMode} from '@/lib/api';
 import {downloadBlob} from '@/lib/portable.mjs';
 import {flushDrafts} from '@/lib/draft-saver.mjs';
 
-export default function ShareSheet({open,onClose,project,onImported}) {
+export default function ShareSheet({open,onClose,project,branchId,onImported}) {
   const input=useRef(null);
   const [mode,setMode]=useState('copy'),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   const local=isLocalMode();
@@ -14,7 +14,9 @@ export default function ShareSheet({open,onClose,project,onImported}) {
     setBusy(true);setMessage('');
     try{
       await flushDrafts();
-      const response=await api(`/projects/${project.id}/export/${kind}`);
+      const isPdf = ['pdf', 'screenplay-pdf', 'screenplay-mobile-pdf'].includes(kind);
+      const branchQuery = isPdf && branchId ? `?branch_id=${encodeURIComponent(branchId)}` : '';
+      const response=await api(`/projects/${project.id}/export/${kind}${branchQuery}`);
       const fileName = project.title.replace(/[^\p{L}\p{N} _-]/gu,'_');
       const filenames = {
         package: `${fileName}.pressureroom`, markdown: `${fileName}-notes.md`,
@@ -45,10 +47,10 @@ export default function ShareSheet({open,onClose,project,onImported}) {
   }
   const exports=local?[['Full story backup','package','Includes scenes, structure and snapshots']]:[
     ['Full story backup','package','The complete editable story and snapshots'],
-    ['Screenplay PDF','screenplay-pdf','Standard screenplay pages for printing or sharing'],
-    ['Mobile screenplay PDF','screenplay-mobile-pdf','Narrow pages and larger text for reading on a phone'],
+    ['Screenplay PDF','screenplay-pdf','Current story path, formatted for printing or sharing'],
+    ['Mobile screenplay PDF','screenplay-mobile-pdf','Current story path, formatted for reading on a phone'],
     ['Screenplay (Fountain)','fountain','Editable Fountain text'],
-    ['Story packet PDF','pdf','Plot, characters, structure and notes'],
+    ['Story packet PDF','pdf','Current story path, plot, characters, structure and notes'],
     ['Structured notes','markdown','Portable story architecture']];
   return <Modal open={open} onClose={onClose} title="Export & backup">
     <p className="modal-lead">{local?'This story lives in this browser. A downloaded backup protects it if the browser or device is lost.':'Download an independent backup of your story, separate from your Supabase account.'}</p>

@@ -212,7 +212,7 @@ export default function Home(){
         <button className="button secondary" onClick={()=>setRoomMenu(true)}>Trash & account</button>
       </div>
     </main>
-    <ShareSheet open={share} onClose={()=>setShare(false)} project={project} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
+    <ShareSheet open={share} onClose={()=>setShare(false)} project={project} branchId={branchId} onImported={async id=>{setShare(false);await loadProjects(id)}}/>
     <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </>;
@@ -247,7 +247,7 @@ export default function Home(){
       {mode==='help'&&<HelpView/>}
     </div>
 
-    {<ShareSheet open={share} onClose={()=>setShare(false)} project={project} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
+    {<ShareSheet open={share} onClose={()=>setShare(false)} project={project} branchId={branchId} onImported={async id=>{setShare(false);await loadProjects(id)}}/>}
     <RoomMenu open={roomMenu} onClose={()=>setRoomMenu(false)} workspace={workspace} auth={auth} presence={presence} storageMode={storageMode} branchId={branchId} setBranchId={setBranchId} onNew={()=>setNewStory(true)} onBackup={()=>setShare(true)} onOpened={loadProjects} reload={reload} onProjectListChanged={loadProjects}/>
     <NewStory open={newStory} onClose={()=>setNewStory(false)} onCreate={async data=>{const r=await create('/projects',data);setNewStory(false);await loadProjects(r.id)}}/>
   </main>

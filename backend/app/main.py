@@ -19,6 +19,7 @@ from .workspace_ops import workspace_request, check_revision
 from .analysis import PRESSURE_MOVES, story_mri, writers_room_questions, suspense_engine
 from .exporters import package_bytes, read_package, project_markdown, fountain, pdf_bytes, MAX_PACKAGE_BYTES
 from .screenplay_pdf import screenplay_pdf_bytes
+from .branch_export import pdf_branch_payload
 
 
 @asynccontextmanager
@@ -641,7 +642,7 @@ def diagnostics(episode_id: str, request: Request):
 
 @app.get("/api/projects/{project_id}/export/{kind}")
 @workspace_request
-def export(project_id: str, kind: str, request: Request):
+def export(project_id: str, kind: str, request: Request, branch_id: str | None = Query(None)):
     _prepare(request)
     try:
         payload = db.project_payload(project_id, include_snapshots=(kind == "package"))
@@ -657,6 +658,11 @@ def export(project_id: str, kind: str, request: Request):
         return Response(project_markdown(payload), media_type="text/markdown; charset=utf-8", headers=disposition("-story-packet.md"))
     if kind == "fountain":
         return Response(fountain(payload), media_type="text/plain; charset=utf-8", headers=disposition(".fountain"))
+    if kind in {"pdf", "screenplay-pdf", "screenplay-mobile-pdf"}:
+        try:
+            payload = pdf_branch_payload(payload, branch_id)
+        except ValueError:
+            raise HTTPException(400, "Story branch not found")
     if kind == "pdf":
         return Response(pdf_bytes(payload), media_type="application/pdf", headers=disposition("-story-packet.pdf"))
     if kind in {"screenplay-pdf", "screenplay-mobile-pdf"}:
