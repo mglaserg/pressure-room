@@ -317,3 +317,72 @@ def test_pdf_downloads_only_the_requested_branch_and_full_fountain_remains_full(
         fountain_text = client.get(f'/api/projects/{pid}/export/fountain').text
         assert 'MAIN ONLY' in fountain_text and 'FORK ONLY' in fountain_text
         assert client.get(f'/api/projects/{pid}/export/screenplay-pdf', params={'branch_id': 'not-in-project'}).status_code == 400
+
+
+def test_writing_modes_and_sketch_lab_fields_are_additive_and_round_trip():
+    with TestClient(app) as client:
+        pid = client.post('/api/projects', json={'data': {
+            'title': 'Mode Test', 'writing_mode': 'sketch'
+        }}).json()['id']
+        ws = client.get(f'/api/projects/{pid}').json()
+        assert ws['project']['writing_mode'] == 'sketch'
+        branch = ws['branches'][0]['id']
+        episode = client.post(f'/api/projects/{pid}/episodes', json={'data': {
+            'branch_id': branch, 'number': 1, 'title': 'Set 1'
+        }}).json()['id']
+        scene = client.post(f'/api/episodes/{episode}/scenes', json={'data': {
+            'scene_no': 1,
+            'slugline': 'The forbidden shortcut',
+            'screenplay_text': 'A clerk tries to stamp the form.',
+            'game_rule': 'Every form requires a more impossible form.',
+            'game_restriction': 'The clerk cannot say no.',
+            'game_escalation': 'Each applicant has higher status.',
+            'game_consequence': 'The clerk must apply for permission to leave.',
+        }}).json()['id']
+        saved = next(row for row in client.get(f'/api/projects/{pid}').json()['scenes'] if row['id'] == scene)
+        assert saved['screenplay_text'] == 'A clerk tries to stamp the form.'
+        assert saved['game_rule'] == 'Every form requires a more impossible form.'
+
+        changed = client.patch(f'/api/projects/{pid}', json={'data': {'writing_mode': 'novel'}})
+        assert changed.status_code == 200
+        refreshed = client.get(f'/api/projects/{pid}').json()
+        assert refreshed['project']['writing_mode'] == 'novel'
+        assert next(row for row in refreshed['scenes'] if row['id'] == scene)['screenplay_text'] == saved['screenplay_text']
+
+
+def test_branch_deletion_protects_main_descendants_and_unrelated_history():
+    with TestClient(app) as client:
+        pid = client.post('/api/projects', json={'data': {'title': 'Branch Safety'}}).json()['id']
+        ws = client.get(f'/api/projects/{pid}').json()
+        main = ws['branches'][0]
+        episode = client.post(f'/api/projects/{pid}/episodes', json={'data': {
+            'branch_id': main['id'], 'number': 1, 'title': 'Original'
+        }}).json()['id']
+        client.post(f'/api/episodes/{episode}/scenes', json={'data': {
+            'scene_no': 1, 'slugline': 'INT. ORIGINAL - DAY', 'screenplay_text': 'Keep me.'
+        }})
+        snapshot = client.post(f'/api/projects/{pid}/snapshots', json={'label': 'Before branches'})
+        assert snapshot.status_code == 200
+
+        wrong = client.request('DELETE', f'/api/projects/{pid}/branches/{main["id"]}', json={'confirm_name': 'not main'})
+        assert wrong.status_code == 400
+        protected = client.request('DELETE', f'/api/projects/{pid}/branches/{main["id"]}', json={'confirm_name': main['name']})
+        assert protected.status_code == 409
+
+        parent = client.post(f'/api/projects/{pid}/branches/{main["id"]}/clone', json={'name': 'Parent fork'}).json()['id']
+        child = client.post(f'/api/projects/{pid}/branches/{parent}/clone', json={'name': 'Child fork'}).json()['id']
+        promoted = client.post(f'/api/projects/{pid}/branches/{parent}/promote')
+        assert promoted.status_code == 200
+        client.post(f'/api/projects/{pid}/branches/{main["id"]}/promote')
+        blocked = client.request('DELETE', f'/api/projects/{pid}/branches/{parent}', json={'confirm_name': 'Parent fork'})
+        assert blocked.status_code == 409
+        assert 'descendants' in blocked.json()['detail']
+
+        child_deleted = client.request('DELETE', f'/api/projects/{pid}/branches/{child}', json={'confirm_name': 'Child fork'})
+        assert child_deleted.status_code == 200
+        parent_deleted = client.request('DELETE', f'/api/projects/{pid}/branches/{parent}', json={'confirm_name': 'Parent fork'})
+        assert parent_deleted.status_code == 200
+        final = client.get(f'/api/projects/{pid}').json()
+        assert [row['id'] for row in final['branches']] == [main['id']]
+        assert any(row['label'] == 'Before branches' for row in final['snapshots'])
+        assert any(row['slugline'] == 'INT. ORIGINAL - DAY' for row in final['scenes'])

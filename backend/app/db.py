@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS projects (
     title TEXT NOT NULL,
     premise TEXT DEFAULT '',
     theme TEXT DEFAULT '',
+    writing_mode TEXT NOT NULL DEFAULT 'screenplay',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1
@@ -124,7 +125,9 @@ CREATE TABLE IF NOT EXISTS branches (
     name TEXT NOT NULL,
     is_main INTEGER NOT NULL DEFAULT 0,
     parent_branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    version INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS characters (
     id TEXT PRIMARY KEY,
@@ -174,6 +177,11 @@ CREATE TABLE IF NOT EXISTS scenes (
     audience_knows TEXT DEFAULT '',
     audience_waits_for TEXT DEFAULT '',
     withheld_information TEXT DEFAULT '',
+    game_premise TEXT DEFAULT '',
+    game_rule TEXT DEFAULT '',
+    game_restriction TEXT DEFAULT '',
+    game_escalation TEXT DEFAULT '',
+    game_consequence TEXT DEFAULT '',
     moral_delta INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -267,6 +275,15 @@ def init_db(seed: bool = True) -> None:
                 con.execute(f"ALTER TABLE scenes ADD COLUMN {column} TEXT DEFAULT ''")
         if not _has_column(con, "branches", "parent_branch_id"):
             con.execute("ALTER TABLE branches ADD COLUMN parent_branch_id TEXT")
+        if not _has_column(con, "branches", "updated_at"):
+            con.execute("ALTER TABLE branches ADD COLUMN updated_at TEXT")
+        if not _has_column(con, "branches", "version"):
+            con.execute("ALTER TABLE branches ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+        if not _has_column(con, "projects", "writing_mode"):
+            con.execute("ALTER TABLE projects ADD COLUMN writing_mode TEXT NOT NULL DEFAULT 'screenplay'")
+        for column in ("game_premise", "game_rule", "game_restriction", "game_escalation", "game_consequence"):
+            if not _has_column(con, "scenes", column):
+                con.execute(f"ALTER TABLE scenes ADD COLUMN {column} TEXT DEFAULT ''")
     if seed:
         ensure_demo()
 
@@ -673,9 +690,9 @@ def promote_branch(project_id: str, branch_id: str) -> None:
     if not branch:
         raise KeyError(branch_id)
     now = now_iso()
-    conn.execute("UPDATE branches SET is_main=0, updated_at=? WHERE project_id=?", [now, project_id])
-    conn.execute("UPDATE branches SET is_main=1, updated_at=? WHERE id=?", [now, branch_id])
-    conn.commit()
+    with connect() as con:
+        con.execute("UPDATE branches SET is_main=0, updated_at=?, version=version+1 WHERE project_id=?", [now, project_id])
+        con.execute("UPDATE branches SET is_main=1, updated_at=?, version=version+1 WHERE id=?", [now, branch_id])
 
 
 def clone_branch(project_id: str, branch_id: str, name: str) -> str:
@@ -719,6 +736,31 @@ def clone_branch(project_id: str, branch_id: str, name: str) -> str:
         bd["created_at"] = now_iso(); bd["updated_at"] = now_iso(); bd["version"] = 1
         insert("bills", bd)
     return new_branch
+
+
+def delete_branch(project_id: str, branch_id: str) -> None:
+    """Delete only an alternate branch's owned graph.
+
+    Project-level characters, notes and snapshots are deliberately retained. Foreign-key
+    cascades remove the branch's episodes, scenes and causal links, while project bills
+    survive with any deleted episode/scene references set to NULL.
+    """
+    with connect() as con:
+        branch = con.execute(
+            "SELECT id, name, is_main FROM branches WHERE id=? AND project_id=?",
+            (branch_id, project_id),
+        ).fetchone()
+        if not branch:
+            raise KeyError(branch_id)
+        if branch["is_main"]:
+            raise ValueError("Main cannot be deleted")
+        child = con.execute(
+            "SELECT id FROM branches WHERE project_id=? AND parent_branch_id=? LIMIT 1",
+            (project_id, branch_id),
+        ).fetchone()
+        if child:
+            raise ValueError("Delete or move descendant branches first")
+        con.execute("DELETE FROM branches WHERE id=? AND project_id=?", (branch_id, project_id))
 
 
 def ensure_demo() -> None:

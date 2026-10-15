@@ -1,8 +1,10 @@
-# Pressure Room v0.7.1
+# Pressure Room v0.8.0
 
 Security, recovery and design follow-up (2026-09-15): see [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for findings, changes, verification, and remaining design priorities. See [UPGRADE.md](UPGRADE.md) before deployment. This revision preserves browser-local mode and uses Supabase Auth plus Postgres for cross-device cloud stories; the legacy anonymous server-SQLite API is disabled unless explicitly enabled for trusted single-user development.
 
 **Stories reveal character under pressure.**
+
+The v0.8.0 writer-first increment adds a directly editable page, screenplay/sketch/novel modes, optional Game and Tension Labs, and guarded branch deletion. See [WRITER_FIRST_UPGRADE.md](WRITER_FIRST_UPGRADE.md) for the evidence, migration notes, verification, and deliberately deferred work.
 
 Pressure Room is a local-first screenwriting environment for developing stories through **pressure, choice, consequence, and moral movement**.
 

@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pressure Room API", version="0.7.1", lifespan=lifespan)
+app = FastAPI(title="Pressure Room API", version="0.8.0", lifespan=lifespan)
 app.add_middleware(RequestLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -93,16 +93,20 @@ class PermanentDeletePayload(BaseModel):
     confirm_title: str
 
 
+class BranchDeletePayload(BaseModel):
+    confirm_name: str
+
+
 EXPORT_KINDS = ("package", "markdown", "fountain", "pdf", "screenplay-pdf", "screenplay-mobile-pdf")
 
 
 PATCH_FIELDS = {
-    "projects": {"title", "premise", "theme"},
+    "projects": {"title", "premise", "theme", "writing_mode"},
     "characters": {"name", "role", "want", "need", "core_belief", "moral_boundary", "fear", "temptation", "moral_score"},
     "episodes": {"number", "title", "logline", "status", "branch_id"},
-    "scenes": {"scene_no", "slugline", "pov_character_id", "opening_behavior", "scene_want", "obstacle", "tactic", "pressure", "choice", "start_state", "end_state", "cut_on", "notes", "screenplay_text", "audience_knows", "audience_waits_for", "withheld_information", "moral_delta"},
+    "scenes": {"scene_no", "slugline", "pov_character_id", "opening_behavior", "scene_want", "obstacle", "tactic", "pressure", "choice", "start_state", "end_state", "cut_on", "notes", "screenplay_text", "audience_knows", "audience_waits_for", "withheld_information", "game_premise", "game_rule", "game_restriction", "game_escalation", "game_consequence", "moral_delta"},
     "bills": {"episode_id", "scene_id", "character_id", "title", "external_cost", "moral_cost", "status", "payoff_scene_id"},
-    "branches": {"name", "is_main"},
+    "branches": {"name"},
     "causal_links": {"from_scene_id", "relation", "to_scene_id", "note"},
 }
 
@@ -134,7 +138,7 @@ def _save(session: dict | None, project_id: str | None) -> None:
 def health():
     return {
         "ok": True,
-        "version": "0.7.1",
+        "version": "0.8.0",
         "build_sha": os.getenv("PRESSURE_ROOM_BUILD_SHA", ""),
         "export_kinds": list(EXPORT_KINDS),
         "storage": supabase_store.storage_mode() if supabase_store.enabled() else "local-sqlite",
@@ -208,12 +212,16 @@ def create_project(payload: Payload, request: Request):
     session = _prepare(request)
     d = payload.data
     ts = db.now_iso()
+    writing_mode = str(d.get("writing_mode", "screenplay")).lower()
+    if writing_mode not in {"screenplay", "sketch", "novel"}:
+        raise HTTPException(400, "Writing mode must be screenplay, sketch, or novel.")
     pid = db.insert(
         "projects",
         {
             "title": d.get("title", "Untitled Story").strip() or "Untitled Story",
             "premise": d.get("premise", ""),
             "theme": d.get("theme", ""),
+            "writing_mode": writing_mode,
             "created_at": ts,
             "updated_at": ts,
         },
@@ -368,6 +376,8 @@ def patch_object(table: str, object_id: str, payload: Payload, request: Request)
     unknown = set(payload.data) - PATCH_FIELDS[table]
     if unknown:
         raise HTTPException(400, f"Unsupported fields: {', '.join(sorted(unknown))}")
+    if table == "projects" and "writing_mode" in payload.data and payload.data["writing_mode"] not in {"screenplay", "sketch", "novel"}:
+        raise HTTPException(400, "Writing mode must be screenplay, sketch, or novel.")
     project_id = db.project_id_for_object(table, object_id)
     if not project_id:
         raise HTTPException(404, "Record not found")
@@ -381,7 +391,7 @@ def patch_object(table: str, object_id: str, payload: Payload, request: Request)
 @workspace_request
 def delete_object(table: str, object_id: str, request: Request):
     session = _prepare(request)
-    allowed = {"characters", "episodes", "scenes", "bills", "causal_links", "branches"}
+    allowed = {"characters", "episodes", "scenes", "bills", "causal_links"}
     if table not in allowed:
         raise HTTPException(400, "Unsupported table")
     project_id = db.project_id_for_object(table, object_id)
@@ -478,6 +488,11 @@ def create_scene(episode_id: str, payload: Payload, request: Request):
             "audience_knows": d.get("audience_knows", ""),
             "audience_waits_for": d.get("audience_waits_for", ""),
             "withheld_information": d.get("withheld_information", ""),
+            "game_premise": d.get("game_premise", ""),
+            "game_rule": d.get("game_rule", ""),
+            "game_restriction": d.get("game_restriction", ""),
+            "game_escalation": d.get("game_escalation", ""),
+            "game_consequence": d.get("game_consequence", ""),
             "moral_delta": int(d.get("moral_delta", 0)),
             "created_at": ts,
             "updated_at": ts,
@@ -570,6 +585,29 @@ def clone_branch(project_id: str, branch_id: str, payload: NamePayload, request:
         raise HTTPException(404, "Branch not found")
     _save(session, project_id)
     return {"id": new_id}
+
+
+@app.delete("/api/projects/{project_id}/branches/{branch_id}")
+@workspace_request
+def delete_branch(project_id: str, branch_id: str, payload: BranchDeletePayload, request: Request):
+    session = _prepare(request)
+    check_revision(request, project_id)
+    branch = db.one("SELECT name, is_main FROM branches WHERE id=? AND project_id=?", [branch_id, project_id])
+    if not branch:
+        raise HTTPException(404, "Branch not found")
+    if payload.confirm_name != branch["name"]:
+        raise HTTPException(400, "Type the branch name exactly to delete it.")
+    if branch["is_main"]:
+        raise HTTPException(409, "Main cannot be deleted.")
+    if db.one("SELECT id FROM branches WHERE project_id=? AND parent_branch_id=? LIMIT 1", [project_id, branch_id]):
+        raise HTTPException(409, "This branch has descendants. Delete those paths first.")
+    try:
+        db.delete_branch(project_id, branch_id)
+    except KeyError:
+        raise HTTPException(404, "Branch not found")
+    _save(session, project_id)
+    main = db.one("SELECT id FROM branches WHERE project_id=? AND is_main=1", [project_id])
+    return {"ok": True, "active_branch_id": main["id"] if main else None}
 
 
 @app.get("/api/projects/{project_id}/branches/compare")

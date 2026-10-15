@@ -296,6 +296,7 @@ async function localRequest(path, options = {}) {
       title: (d.title || 'Untitled Story').trim() || 'Untitled Story',
       premise: d.premise || '',
       theme: d.theme || '',
+      writing_mode: ['screenplay','sketch','novel'].includes(d.writing_mode) ? d.writing_mode : 'screenplay',
       created_at: ts,
       updated_at: ts,
       version: 1,
@@ -434,6 +435,11 @@ async function localRequest(path, options = {}) {
       audience_knows: d.audience_knows || '',
       audience_waits_for: d.audience_waits_for || '',
       withheld_information: d.withheld_information || '',
+      game_premise: d.game_premise || '',
+      game_rule: d.game_rule || '',
+      game_restriction: d.game_restriction || '',
+      game_escalation: d.game_escalation || '',
+      game_consequence: d.game_consequence || '',
       moral_delta: Number(d.moral_delta || 0),
       created_at: ts,
       updated_at: ts,
@@ -513,6 +519,7 @@ async function localRequest(path, options = {}) {
       project_id,
       name: body.name || 'Alternate path',
       is_main: 0,
+      parent_branch_id: branch_id,
       created_at: ts,
       updated_at: ts,
       version: 1,
@@ -549,6 +556,48 @@ async function localRequest(path, options = {}) {
     touchProject(db, project_id);
     writeDb(db);
     return {id: newBranchId};
+  }
+
+  const deleteBranchMatch = pathname.match(/^\/projects\/([^/]+)\/branches\/([^/]+)$/);
+  const promoteBranchMatch = pathname.match(/^\/projects\/([^/]+)\/branches\/([^/]+)\/promote$/);
+  if (promoteBranchMatch && method === 'POST') {
+    const [, projectId, branchId] = promoteBranchMatch;
+    const branch = db.branches.find(item => item.id === branchId && item.project_id === projectId);
+    if (!branch) throw new Error('Branch not found');
+    for (const item of db.branches.filter(candidate=>candidate.project_id===projectId)) {
+      item.is_main=item.id===branchId?1:0;
+      touchVersion(item);
+    }
+    touchProject(db, projectId);
+    writeDb(db);
+    return {ok:true};
+  }
+  if (deleteBranchMatch && method === 'DELETE') {
+    const [, projectId, branchId] = deleteBranchMatch;
+    const branch = db.branches.find(item => item.id === branchId && item.project_id === projectId);
+    if (!branch) throw new Error('Branch not found');
+    const body = parseJsonBody(options);
+    if (body.confirm_name !== branch.name) throw new Error('Type the branch name exactly to delete it.');
+    if (Number(branch.is_main) === 1) throw new Error('Main cannot be deleted.');
+    if (db.branches.some(item => item.project_id === projectId && item.parent_branch_id === branchId)) {
+      throw new Error('This branch has descendants. Delete those paths first.');
+    }
+    const episodeIds = new Set(db.episodes.filter(e => e.branch_id === branchId).map(e => e.id));
+    const sceneIds = new Set(db.scenes.filter(s => episodeIds.has(s.episode_id)).map(s => s.id));
+    db.branches = db.branches.filter(item => item.id !== branchId);
+    db.episodes = db.episodes.filter(e => !episodeIds.has(e.id));
+    db.scenes = db.scenes.filter(s => !sceneIds.has(s.id));
+    db.causal_links = db.causal_links.filter(link => !episodeIds.has(link.episode_id));
+    db.bills = db.bills.map(bill => ({
+      ...bill,
+      episode_id: episodeIds.has(bill.episode_id) ? null : bill.episode_id,
+      scene_id: sceneIds.has(bill.scene_id) ? null : bill.scene_id,
+      payoff_scene_id: sceneIds.has(bill.payoff_scene_id) ? null : bill.payoff_scene_id,
+    }));
+    touchProject(db, projectId);
+    writeDb(db);
+    const main = db.branches.find(item => item.project_id === projectId && Number(item.is_main) === 1);
+    return {ok:true, active_branch_id:main?.id || ''};
   }
 
   const createSnapshotMatch = pathname.match(/^\/projects\/([^/]+)\/snapshots$/);
@@ -605,6 +654,8 @@ async function localRequest(path, options = {}) {
       const error=new Error('This scene changed in another tab. Download your draft before loading the latest scene.');error.status=409;throw error;
     }
     const data=parseJsonBody(options);
+    if(table==='projects' && data.writing_mode && !['screenplay','sketch','novel'].includes(data.writing_mode))throw Error('Unsupported writing mode.');
+    if(table==='branches' && Object.keys(data).some(key=>key!=='name'))throw Error('Branch relationships must use the dedicated branch actions.');
     if(Object.keys(data).some(k=>['id','project_id','episode_id','created_at','version','__proto__','constructor','prototype'].includes(k)))throw Error('Record metadata cannot be edited.');
     Object.assign(row,data);
     touchVersion(row);
@@ -617,7 +668,7 @@ async function localRequest(path, options = {}) {
   if (patchMatch && method === 'DELETE') {
     const table = patchMatch[1];
     const id = patchMatch[2];
-    if (!db[table]) throw new Error('Unsupported table');
+    if (!db[table] || table === 'branches') throw new Error('Unsupported table');
     const projectId = findProjectIdForTable(db, table, id);
 
     if (table === 'episodes') {

@@ -12,9 +12,9 @@ import RoomMenu from '@/components/RoomMenu';
 
 const NAV = [
   ['write','Write','The page'],
-  ['structure','Structure','The spine'],
-  ['diagnose','Diagnose','The pressure'],
-  ['help','How to use','The method'],
+  ['structure','Plan','Story & paths'],
+  ['diagnose','Tools','When you need them'],
+  ['help','Help','The method'],
 ];
 
 export default function Home(){
@@ -110,6 +110,8 @@ export default function Home(){
   const branch=workspace?.branches.find(b=>b.id===branchId);
   const branchEpisodes=(workspace?.episodes||[]).filter(e=>e.branch_id===branchId);
   const episode=branchEpisodes.find(e=>e.id===episodeId)||branchEpisodes[0];
+  const writingMode=project?.writing_mode||'screenplay';
+  const episodeNoun=writingMode==='novel'?'Part':writingMode==='sketch'?'Set':'Episode';
 
   useEffect(()=>{
     if(workspace&&branchId){
@@ -136,7 +138,7 @@ export default function Home(){
     try{
       await flushDrafts();
       const n=Math.max(0,...branchEpisodes.map(e=>e.number))+1;
-      const r=await create(`/projects/${project.id}/episodes`,{branch_id:branch.id,number:n,title:`Episode ${n}`,logline:''});
+      const r=await create(`/projects/${project.id}/episodes`,{branch_id:branch.id,number:n,title:`${episodeNoun} ${n}`,logline:''});
       await reload();
       setEpisodeId(r.id);
       setSceneId('');
@@ -148,7 +150,7 @@ export default function Home(){
     if(!episode||episodeBusy)return;
     const sceneCount=(workspace?.scenes||[]).filter(scene=>scene.episode_id===episode.id).length;
     const detail=sceneCount===1?' It contains 1 scene.':sceneCount>1?` It contains ${sceneCount} scenes.`:'';
-    if(!window.confirm(`Delete Episode ${episode.number} · ${episode.title}?${detail} This cannot be undone.`))return;
+    if(!window.confirm(`Delete ${episodeNoun} ${episode.number} · ${episode.title}?${detail} This cannot be undone.`))return;
     setEpisodeBusy(true);
     setError('');
     try{
@@ -229,7 +231,7 @@ export default function Home(){
       <div className="context-bar" aria-label="Story context">
         <label className="context-select"><span>Story</span><select value={projectId} onChange={async e=>{setProjectId(e.target.value);await loadWorkspace(e.target.value)}}>{projects.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
         <span className="context-chevron">/</span>
-        {branchEpisodes.length?<div className="episode-context"><label className="context-select"><span>Episode</span><select aria-label="Episode" disabled={episodeBusy} value={episode?.id||''} onChange={e=>{const id=e.target.value;if(id==='__new_episode__'){void createEpisode();return;}setEpisodeId(id);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>E{e.number} · {e.title}</option>)}<option value="__new_episode__">+ New episode</option></select></label><button className="context-delete" type="button" disabled={episodeBusy||!episode} onClick={deleteEpisode} aria-label={episode?`Delete Episode ${episode.number}`:'Delete episode'} title="Delete episode">×</button></div>:<button className="context-add" disabled={episodeBusy} onClick={createEpisode}>{episodeBusy?'Creating…':'+ Episode'}</button>}
+        {branchEpisodes.length?<div className="episode-context"><label className="context-select"><span>{episodeNoun}</span><select aria-label={episodeNoun} disabled={episodeBusy} value={episode?.id||''} onChange={e=>{const id=e.target.value;if(id==='__new_episode__'){void createEpisode();return;}setEpisodeId(id);setSceneId('')}}>{branchEpisodes.map(e=><option key={e.id} value={e.id}>{writingMode==='screenplay'?'E':''}{e.number} · {e.title}</option>)}<option value="__new_episode__">+ New {episodeNoun.toLowerCase()}</option></select></label><button className="context-delete" type="button" disabled={episodeBusy||!episode} onClick={deleteEpisode} aria-label={episode?`Delete ${episodeNoun} ${episode.number}`:`Delete ${episodeNoun.toLowerCase()}`} title={`Delete ${episodeNoun.toLowerCase()}`}>×</button></div>:<button className="context-add" disabled={episodeBusy} onClick={createEpisode}>{episodeBusy?'Creating…':`+ ${episodeNoun}`}</button>}
       </div>
 
       <div className="top-actions">{auth?.authenticated&&<span className="presence-pill" title={presence.map(p=>p.email).filter(Boolean).join(', ')}>{presence.length<=1?'You':`${presence.length} in room`}</span>}<button className="button compact room-menu-trigger" aria-haspopup="dialog" onClick={()=>setRoomMenu(true)}>Room <span aria-hidden="true">☰</span></button></div>
@@ -275,6 +277,6 @@ function BrandMark({large=false}){
 }
 
 function NewStory({open,onClose,onCreate}){
-  const [d,setD]=useState({title:'',premise:'',theme:''});
-  return <Modal open={open} onClose={onClose} title="Open a new room"><div className="modal-intro"><p>Start with the story’s front door. You can discover the rest under pressure.</p></div><div className="form-stack"><label>Title<input autoFocus value={d.title} placeholder="Untitled story" onChange={e=>setD({...d,title:e.target.value})}/></label><label>Premise<textarea rows="4" value={d.premise} placeholder="Who wants what — and what makes it costly?" onChange={e=>setD({...d,premise:e.target.value})}/></label><label>Theme / dramatic question<input value={d.theme} placeholder="What question keeps the story alive?" onChange={e=>setD({...d,theme:e.target.value})}/></label><button className="button full" disabled={!d.title.trim()} onClick={()=>onCreate(d)}>Create story</button></div></Modal>
+  const [d,setD]=useState({title:'',premise:'',theme:'',writing_mode:'screenplay'});
+  return <Modal open={open} onClose={onClose} title="Open a new room"><div className="modal-intro"><p>Choose the kind of page you need. You can change it later without converting or losing text.</p></div><div className="form-stack"><label>Writing mode<select value={d.writing_mode} onChange={e=>setD({...d,writing_mode:e.target.value})}><option value="screenplay">Screenplay</option><option value="sketch">Comedy sketch</option><option value="novel">Novel</option></select></label><label>Title<input autoFocus value={d.title} placeholder="Untitled story" onChange={e=>setD({...d,title:e.target.value})}/></label><label>Premise<textarea rows="4" value={d.premise} placeholder="Who wants what — and what makes it costly?" onChange={e=>setD({...d,premise:e.target.value})}/></label><label>Theme / dramatic question<input value={d.theme} placeholder="What question keeps the story alive?" onChange={e=>setD({...d,theme:e.target.value})}/></label><button className="button full" disabled={!d.title.trim()} onClick={()=>onCreate(d)}>Create story</button></div></Modal>
 }

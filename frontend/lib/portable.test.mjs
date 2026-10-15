@@ -4,8 +4,11 @@ import {zipSync,strToU8} from 'fflate';
 import {encodeProject,decodeProject,copyProject} from './portable.mjs';
 const project=()=>({format:'pressure-room',format_version:2,project:{id:'p',title:'Story'},branches:[{id:'b',project_id:'p',name:'Main',is_main:1}],episodes:[{id:'e',project_id:'p',branch_id:'b',title:'Episode'}],scenes:[{id:'s',episode_id:'e',slugline:'INT. TEST',screenplay_text:''}],characters:[],bills:[],causal_links:[],story_notes:[],snapshots:[]});
 test('portable backup round trip includes complete snapshot history',()=>{
- const p=project();p.snapshots=[{id:'snap',project_id:'p',label:'Before',payload:project()}];
- const restored=decodeProject(encodeProject(p));assert.equal(restored.snapshots[0].payload.scenes[0].screenplay_text,'');assert.equal(restored.project.title,'Story');
+ const p=project();p.project.writing_mode='sketch';p.scenes[0].game_rule='Never say no';p.snapshots=[{id:'snap',project_id:'p',label:'Before',payload:project()}];
+ const restored=decodeProject(encodeProject(p));assert.equal(restored.snapshots[0].payload.scenes[0].screenplay_text,'');assert.equal(restored.project.title,'Story');assert.equal(restored.project.writing_mode,'sketch');assert.equal(restored.scenes[0].game_rule,'Never say no');
+});
+test('older backups default to screenplay mode without changing text',()=>{
+ const restored=decodeProject(encodeProject(project()));assert.equal(restored.project.writing_mode,'screenplay');assert.equal(restored.scenes[0].screenplay_text,'');
 });
 test('copy remaps all relationships, including historical project identity',()=>{
  const p=project();p.snapshots=[{id:'snap',project_id:'p',payload:project()}];let n=0;

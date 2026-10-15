@@ -4,11 +4,11 @@ export const TABLES = ['branches','characters','episodes','scenes','causal_links
 const MAX_JSON = 32*1024*1024;
 const MAX_ZIP = 10*1024*1024;
 const FIELDS = {
-  project:'id title premise theme created_at updated_at version',
-  branches:'id project_id name is_main created_at',
+  project:'id title premise theme writing_mode created_at updated_at version',
+  branches:'id project_id name is_main parent_branch_id created_at updated_at version',
   characters:'id project_id name role want need core_belief moral_boundary fear temptation moral_score created_at updated_at version',
   episodes:'id project_id branch_id number title logline status created_at updated_at version',
-  scenes:'id episode_id scene_no slugline pov_character_id opening_behavior scene_want obstacle tactic pressure choice start_state end_state cut_on notes screenplay_text audience_knows audience_waits_for withheld_information moral_delta created_at updated_at version',
+  scenes:'id episode_id scene_no slugline pov_character_id opening_behavior scene_want obstacle tactic pressure choice start_state end_state cut_on notes screenplay_text audience_knows audience_waits_for withheld_information game_premise game_rule game_restriction game_escalation game_consequence moral_delta created_at updated_at version',
   causal_links:'id episode_id from_scene_id relation to_scene_id note created_at',
   bills:'id project_id episode_id scene_id character_id title external_cost moral_cost status payoff_scene_id created_at updated_at version',
   story_notes:'id project_id object_type object_id body created_at',
@@ -36,6 +36,7 @@ function record(value, table) {
 export function validateProject(input, depth=0) {
   if (!input || input.format!=='pressure-room' || ![1,2].includes(input.format_version||1)) throw Error('Choose a Pressure Room project backup.');
   const out={format:'pressure-room',format_version:2,project:record(input.project,'project')};
+  out.project.writing_mode=['screenplay','sketch','novel'].includes(out.project.writing_mode)?out.project.writing_mode:'screenplay';
   if (typeof out.project.title!=='string'||!out.project.title.trim()) throw Error('A story title is required.');
   const ids=new Set([out.project.id]);
   for (const table of TABLES) {
@@ -50,6 +51,7 @@ export function validateProject(input, depth=0) {
   }
   const maps=Object.fromEntries(TABLES.map(t=>[t,new Map(out[t].map(r=>[r.id,r]))]));
   const ref=(table,id)=>{if(id!=null&&!maps[table].has(id))throw Error('Backup contains a broken relationship.');};
+  for(const branch of out.branches){ref('branches',branch.parent_branch_id);}
   for(const ep of out.episodes){if(!ep.branch_id)throw Error('Episode is missing its path.');ref('branches',ep.branch_id);}
   for(const scene of out.scenes){if(!scene.episode_id)throw Error('Scene is missing its episode.');ref('episodes',scene.episode_id);ref('characters',scene.pov_character_id);}
   for(const link of out.causal_links){
